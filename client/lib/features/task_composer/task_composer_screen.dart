@@ -47,6 +47,14 @@ class _TaskComposerScreenState extends State<TaskComposerScreen> {
     }
   }
 
+  Future<void> _approveEngineHandoff(TaskComposerController controller) async {
+    await controller.approveActiveTask();
+    // The approval endpoint starts work asynchronously. Refreshing after the
+    // request makes the visible state move even if the worker has not yet
+    // emitted its next event when the 202 response arrives.
+    await controller.refreshTaskStatus();
+  }
+
   @override
   Widget build(BuildContext context) {
     final controller = widget.controller;
@@ -455,7 +463,7 @@ class _TaskComposerScreenState extends State<TaskComposerScreen> {
                       child: ElevatedButton.icon(
                         onPressed: controller.approving
                             ? null
-                            : controller.approveActiveTask,
+                            : () => _approveEngineHandoff(controller),
                         icon: controller.approving
                             ? const SizedBox(
                                 width: 16,
