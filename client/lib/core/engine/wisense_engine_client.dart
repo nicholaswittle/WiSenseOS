@@ -97,6 +97,19 @@ class WiSenseEngineClient {
     return EngineTaskStatus.fromJson(body, statusCode: response.statusCode);
   }
 
+  Future<List<EngineTaskStatus>> listTasks({int limit = 20}) async {
+    final response = await _client.get(
+      _endpoint('/api/v1/tasks?limit=$limit'),
+      headers: await _headers(),
+    );
+    final body = _body(response);
+    _requireSuccess(response, body, 'List tasks');
+    return ((body['tasks'] as List?) ?? const [])
+        .whereType<Map>()
+        .map((task) => EngineTaskStatus.fromJson(Map<String, dynamic>.from(task), statusCode: 200))
+        .toList(growable: false);
+  }
+
   Future<EngineTaskStatus> approveTask(String taskId) async {
     final response = await _client.post(
       _endpoint('/api/v1/tasks/$taskId/approve'),

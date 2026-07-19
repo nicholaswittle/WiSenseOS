@@ -103,6 +103,22 @@ class TaskComposerController extends ChangeNotifier {
         _selectedBuilderModel ??= builderModels.firstOrNull ?? _models.first;
       }
 
+      // A restart must not hide a pending approval or provider response. Task
+      // history is best-effort here so an older Engine without history support
+      // cannot prevent composing a new task.
+      try {
+        final recent = await client.listTasks(limit: 20);
+        final pending = recent.where((task) =>
+            task.status == 'waiting_for_approval' || task.status == 'waiting_for_provider_input').firstOrNull;
+        if (pending != null) {
+          _lastSubmissionResult = await client.getTask(pending.taskId);
+          _activePlan = _lastSubmissionResult?.plan;
+        }
+      } catch (_) {
+        // The visible Engine health/error state remains the source of truth;
+        // history resumption is an enhancement, not a hidden fallback.
+      }
+
       _loading = false;
       notifyListeners();
     } catch (e) {

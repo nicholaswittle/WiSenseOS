@@ -92,6 +92,22 @@ void main() {
     expect(result.events.single.sequence, 1);
   });
 
+  test('listTasks reads persisted task summaries for restart recovery', () async {
+    late http.BaseRequest captured;
+    final client = WiSenseEngineClient(client: FakeClient((request) async {
+      captured = request;
+      return http.Response(jsonEncode({
+        'tasks': [{'task_id': 'task-pending', 'status': 'waiting_for_approval'}],
+      }), 200);
+    }));
+
+    final tasks = await client.listTasks(limit: 20);
+
+    expect(captured.url.path, '/api/v1/tasks');
+    expect(captured.url.queryParameters['limit'], '20');
+    expect(tasks.single.taskId, 'task-pending');
+  });
+
   test('draftTaskPlan reads the durable evidence plan contract', () async {
     late http.BaseRequest captured;
     final client = WiSenseEngineClient(client: FakeClient((request) async {
