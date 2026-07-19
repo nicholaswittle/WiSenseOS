@@ -448,6 +448,24 @@ class TaskComposerController extends ChangeNotifier {
     }
   }
 
+  List<String> get candidateFiles {
+    final err = _error ?? _lastSubmissionResult?.reason ?? '';
+    if (err.contains('edit_plan_ambiguous:')) {
+      final parts = err.split('edit_plan_ambiguous:');
+      if (parts.length > 1) {
+        return parts[1].split(',').map((e) => e.trim()).where((e) => e.isNotEmpty).toList();
+      }
+    }
+    return const [];
+  }
+
+  void applyCandidateFile(String candidatePath) {
+    if (candidatePath.isEmpty) return;
+    _requestText = '${_requestText.trim()} In file: $candidatePath';
+    _error = null;
+    notifyListeners();
+  }
+
   Future<EngineTaskPlan?> draftActivePlan() async {
     final currentId = _lastSubmissionResult?.taskId;
     if (currentId == null || currentId.isEmpty || !canDraftPlan) return null;

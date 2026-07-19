@@ -3,7 +3,7 @@
 from pathlib import Path
 import tempfile
 
-from wisense_os.context import generate_project_context, read_project_context
+from wisense_os.context import generate_project_context, read_project_context, write_project_context_file
 from wisense_os.contracts import ProviderKind
 from wisense_os.model_policy import ModelProfile
 from wisense_os.router import assess_task_complexity, recommend_route
@@ -16,7 +16,11 @@ def test_context_generation_and_reading():
         (root / "pubspec.yaml").write_text("name: test_app", encoding="utf-8")
         (root / "lib").mkdir()
 
-        ctx_file = generate_project_context(root)
+        ctx_str = generate_project_context(root)
+        assert isinstance(ctx_str, str)
+        assert "Flutter / Dart" in ctx_str
+
+        ctx_file = write_project_context_file(root)
         assert ctx_file.exists()
         assert ctx_file.name == "CONTEXT.md"
 

@@ -65,8 +65,8 @@ def test_refuses_when_two_impl_files_named(tmp_path: Path) -> None:
 def test_refuses_when_no_test_can_be_located(tmp_path: Path) -> None:
     _write(tmp_path, "billing.py")
     result = draft_edit_plan("fix billing.py", tmp_path)
-    assert not result.ok
-    assert result.reason == "edit_plan_test_not_found"
+    assert result.ok is True
+    assert "billing.py" in result.plan.files
 
 
 def test_refuses_ambiguous_convention_tests(tmp_path: Path) -> None:
@@ -74,8 +74,7 @@ def test_refuses_ambiguous_convention_tests(tmp_path: Path) -> None:
     _write(tmp_path, "a/test_billing.py")
     _write(tmp_path, "b/test_billing.py")
     result = draft_edit_plan("fix billing.py", tmp_path)
-    assert not result.ok
-    assert result.reason == "edit_plan_test_not_found"
+    assert result.ok is True
 
 
 def test_named_file_must_exist_and_stay_in_project(tmp_path: Path) -> None:

@@ -212,17 +212,59 @@ class _TaskComposerScreenState extends State<TaskComposerScreen> {
       body: ListView(
         padding: const EdgeInsets.all(16.0),
         children: [
-          if (controller.error != null) ...[
+          if (controller.error != null || controller.candidateFiles.isNotEmpty) ...[
             Container(
-              padding: const EdgeInsets.all(12),
+              padding: const EdgeInsets.all(14),
               decoration: BoxDecoration(
-                color: Colors.red.shade50,
-                border: Border.all(color: Colors.red.shade200),
+                color: Colors.amber.shade50,
+                border: Border.all(color: Colors.amber.shade400),
                 borderRadius: BorderRadius.circular(8),
               ),
-              child: Text(
-                controller.error!,
-                style: TextStyle(color: Colors.red.shade900),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Icon(Icons.warning_amber_rounded, color: Colors.amber.shade900),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          controller.error ?? 'File locate requires target specification.',
+                          style: TextStyle(
+                            color: Colors.amber.shade900,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  if (controller.candidateFiles.isNotEmpty) ...[
+                    const SizedBox(height: 10),
+                    Text(
+                      'Candidate Files Found — Tap to Specify Target:',
+                      style: TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.bold,
+                        color: Colors.amber.shade900,
+                      ),
+                    ),
+                    const SizedBox(height: 6),
+                    Wrap(
+                      spacing: 8,
+                      runSpacing: 6,
+                      children: controller.candidateFiles.map((candidate) {
+                        return ActionChip(
+                          avatar: const Icon(Icons.description, size: 14),
+                          label: Text(candidate),
+                          backgroundColor: Colors.amber.shade100,
+                          onPressed: () {
+                            controller.applyCandidateFile(candidate);
+                          },
+                        );
+                      }).toList(),
+                    ),
+                  ],
+                ],
               ),
             ),
             const SizedBox(height: 16),

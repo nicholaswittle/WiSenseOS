@@ -47,30 +47,33 @@ def recommend_route(
     request: str,
     available_profiles: Sequence[ModelProfile],
 ) -> RouteRecommendation:
-    """Recommend the optimal chat and builder model pairing based on complexity and local availability."""
+    """Recommend optimal chat and builder model pairing strictly from available profiles."""
     complexity = assess_task_complexity(request)
 
     local_chat = next((p for p in available_profiles if p.available and p.provider != ProviderKind.CLOUD and "chat" in p.roles), None)
     local_builder = next((p for p in available_profiles if p.available and p.provider != ProviderKind.CLOUD and "builder" in p.roles), None)
+    cloud_chat = next((p for p in available_profiles if p.provider == ProviderKind.CLOUD and "chat" in p.roles), None)
     cloud_builder = next((p for p in available_profiles if p.provider == ProviderKind.CLOUD and "builder" in p.roles), None)
 
-    default_chat = local_chat.name if local_chat else "qwen2.5-coder:7b"
-    default_local_builder = local_builder.name if local_builder else "qwen2.5-coder:7b"
-    default_cloud_builder = cloud_builder.name if cloud_builder else "gemma4:31b-cloud"
+    chat_model = local_chat.name if local_chat else (cloud_chat.name if cloud_chat else "gemma4:31b-cloud")
+    builder_model = (
+        cloud_builder.name if (complexity == "high" and cloud_builder) or not local_builder
+        else local_builder.name
+    )
 
-    if complexity == "high" and cloud_builder:
+    if builder_model == (cloud_builder.name if cloud_builder else "gemma4:31b-cloud"):
         return RouteRecommendation(
-            chat_model=default_chat,
-            builder_model=default_cloud_builder,
+            chat_model=chat_model,
+            builder_model=builder_model,
             complexity=complexity,
-            reason="Task requires high architectural reasoning. Cloud builder recommended (supervised testing).",
-            estimated_cost=0.15,
+            reason="Cloud Ask Before Changes route selected (supervised testing).",
+            estimated_cost=0.05 if complexity != "high" else 0.15,
         )
 
     return RouteRecommendation(
-        chat_model=default_chat,
-        builder_model=default_local_builder,
+        chat_model=chat_model,
+        builder_model=builder_model,
         complexity=complexity,
-        reason="Task is suitable for local execution without external API usage.",
+        reason="Task is suitable for local model execution at zero cloud cost.",
         estimated_cost=0.00,
     )

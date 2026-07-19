@@ -5,17 +5,13 @@ from __future__ import annotations
 from pathlib import Path
 
 
-def generate_project_context(project_root: Path) -> Path:
-    """Scan project structure and generate/update .wisense/CONTEXT.md."""
-    wisense_dir = project_root / ".wisense"
-    wisense_dir.mkdir(parents=True, exist_ok=True)
-    context_file = wisense_dir / "CONTEXT.md"
-
-    # Analyze project structure
+def build_project_context_string(project_root: Path) -> str:
+    """Scan project structure and build memory context string in-memory without writing to disk."""
+    if not project_root.is_dir():
+        return ""
     subdirs = [p.name for p in project_root.iterdir() if p.is_dir() and not p.name.startswith(".")]
     files = [p.name for p in project_root.iterdir() if p.is_file()]
 
-    # Detect language/framework
     tech_stack = []
     if (project_root / "pubspec.yaml").exists():
         tech_stack.append("Flutter / Dart")
@@ -26,7 +22,7 @@ def generate_project_context(project_root: Path) -> Path:
 
     tech_str = ", ".join(tech_stack) if tech_stack else "General / Polyglot"
 
-    content = f"""# Project Topology & Memory Context
+    return f"""# Project Topology & Memory Context
 
 **Project Name**: {project_root.name}
 **Root Path**: {project_root.resolve()}
@@ -43,19 +39,28 @@ def generate_project_context(project_root: Path) -> Path:
 4. **Goal-Driven Execution**: Define explicit, test-verifiable acceptance criteria before writing code. Verify that unit tests pass before committing.
 """
 
+
+def generate_project_context(project_root: Path) -> str:
+    """Build memory context without writing to disk by default."""
+    return build_project_context_string(project_root)
+
+
+def write_project_context_file(project_root: Path) -> Path:
+    """Write .wisense/CONTEXT.md to disk only on explicit approval."""
+    wisense_dir = project_root / ".wisense"
+    wisense_dir.mkdir(parents=True, exist_ok=True)
+    context_file = wisense_dir / "CONTEXT.md"
+    content = build_project_context_string(project_root)
     context_file.write_text(content, encoding="utf-8")
     return context_file
 
 
 def read_project_context(project_root: Path) -> str:
-    """Read project memory context if present, generating if missing."""
+    """Read project memory context if present on disk, otherwise build in-memory."""
     context_file = project_root / ".wisense" / "CONTEXT.md"
-    if not context_file.exists():
+    if context_file.exists():
         try:
-            generate_project_context(project_root)
+            return context_file.read_text(encoding="utf-8")
         except Exception:
-            return ""
-    try:
-        return context_file.read_text(encoding="utf-8")
-    except Exception:
-        return ""
+            pass
+    return build_project_context_string(project_root)

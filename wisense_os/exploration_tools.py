@@ -20,6 +20,12 @@ def _pattern_is_safe(pattern: str) -> bool:
     return not Path(pattern).is_absolute() and ".." not in Path(pattern).parts
 
 
+_SECRET_PATTERNS = re.compile(
+    r"(sk-[a-zA-Z0-9]{32,}|AIzaSy[a-zA-Z0-9_-]{33}|ghp_[a-zA-Z0-9]{36}|bearer\s+[a-zA-Z0-9._-]+)",
+    re.IGNORECASE,
+)
+
+
 def read_file(
     project_root: Path,
     path: str,
@@ -38,6 +44,7 @@ def read_file(
         return {"error": "read_error"}
     truncated = len(data) > max_bytes
     content = data[:max_bytes].decode("utf-8", errors="replace")
+    content = _SECRET_PATTERNS.sub("[REDACTED_SECRET]", content)
     return {
         "path": _normalize(path),
         "content": content,
