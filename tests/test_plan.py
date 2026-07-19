@@ -12,6 +12,9 @@ def test_endpoint_request_becomes_an_evidence_backed_existing_file_plan(tmp_path
     fixture = tmp_path / "tests" / "test_bootstrap.py"
     fixture.parent.mkdir()
     fixture.write_text("def test_api(test_client): pass\n", encoding="utf-8")
+    scratch_api = tmp_path / ".pytest_tmp" / "copied" / "wisense_os" / "api.py"
+    scratch_api.parent.mkdir(parents=True)
+    scratch_api.write_text("from flask import Flask\napp = Flask(__name__)\n", encoding="utf-8")
 
     result = draft_evidence_plan(
         "Add a GET /api/v1/version endpoint that returns JSON.", tmp_path,

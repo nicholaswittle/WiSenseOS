@@ -69,7 +69,12 @@ def _first_matching(root: Path, pattern: str, required_text: str) -> Path | None
     if not root.is_dir():
         return None
     for candidate in sorted(root.rglob(pattern)):
-        if not candidate.is_file() or ".git" in candidate.parts:
+        relative_parts = candidate.relative_to(root).parts
+        if (
+            not candidate.is_file()
+            or any(part.startswith(".") for part in relative_parts)
+            or any(part in {"build", "__pycache__"} for part in relative_parts)
+        ):
             continue
         try:
             if required_text in candidate.read_text(encoding="utf-8"):
