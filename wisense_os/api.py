@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hmac
 from threading import Thread
 from pathlib import Path
 
@@ -12,8 +13,28 @@ from .plan import draft_evidence_plan
 from .service import TaskCoordinator
 
 
-def create_app(coordinator: TaskCoordinator) -> Flask:
+def create_app(coordinator: TaskCoordinator, *, auth_token: str | None = None) -> Flask:
     app = Flask(__name__)
+
+    @app.before_request
+    def _require_loopback_token():
+        # Loopback token gate. Enforced only when a token was issued (the
+        # real launcher always issues one; in-process tests construct the
+        # app without a token and stay open). This protects against other
+        # local accounts and accidental callers, not malware running as
+        # the same user. Health is exempt so a client can probe readiness
+        # before it has read the token file.
+        if auth_token is None:
+            return None
+        if request.path == "/api/v1/health":
+            return None
+        presented = request.headers.get("X-WiSense-Token", "")
+        header = request.headers.get("Authorization", "")
+        if not presented and header.startswith("Bearer "):
+            presented = header[len("Bearer "):]
+        if not presented or not hmac.compare_digest(presented, auth_token):
+            return jsonify({"error": "unauthorized"}), 401
+        return None
 
     @app.get("/api/v1/health")
     def health():

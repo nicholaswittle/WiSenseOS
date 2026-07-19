@@ -9,7 +9,11 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 
-from wisense_os.bootstrap import create_default_app
+from wisense_os.bootstrap import (
+    _default_state_dir,
+    create_default_app,
+    issue_launch_token,
+)
 from wisense_os.model_adapter import OllamaChatAdapter
 
 
@@ -19,12 +23,16 @@ def main() -> None:
     parser.add_argument("--state-dir", type=Path, default=None)
     args = parser.parse_args()
 
+    state_dir = args.state_dir or _default_state_dir()
+    token = issue_launch_token(state_dir)
     adapter = OllamaChatAdapter()
     app = create_default_app(
-        args.state_dir,
+        state_dir,
         model_adapter=adapter,
         runtime_model_names=adapter.available_models(),
+        auth_token=token,
     )
+    print(f"WiSense Engine on http://127.0.0.1:{args.port} -- token at {state_dir / 'engine_token'}")
     app.run(host="127.0.0.1", port=args.port, debug=False)
 
 
