@@ -299,7 +299,32 @@ class TaskCoordinator:
                 plan = TaskPlan.from_json(saved_plan)
                 approved_files = dict(proposal.files) if proposal is not None else None
 
+        reservation_id: str | None = None
         try:
+            if self.budget is not None:
+                spend_model = (
+                    request.chat_model if mode == RunMode.TALK_ONLY else request.builder_model
+                )
+                # Ask Before Changes apply uses an already-paid proposal; only
+                # reserve again when a model call is still ahead (talk / autopilot).
+                needs_model = mode in {RunMode.TALK_ONLY, RunMode.LOCAL_AUTOPILOT}
+                if needs_model:
+                    profile = self.models.get(spend_model)
+                    if profile.provider is ProviderKind.CLOUD:
+                        prompt_chars = request.request
+                        if plan is not None:
+                            prompt_chars += json_dumps_plan(plan)
+                        reservation_id = self.budget.reserve(
+                            model=spend_model,
+                            input_tokens=estimate_tokens(prompt_chars),
+                            output_tokens=estimate_tokens(prompt_chars) * 2,
+                            task_id=task_id,
+                        )
+                        self.store.append_event(
+                            task_id,
+                            "budget_reserved",
+                            f"reserved cloud spend for {spend_model}",
+                        )
             if mode == RunMode.TALK_ONLY:
                 result = self.executor.chat(request)
             elif mode == RunMode.ASK_BEFORE_CHANGES:
@@ -309,13 +334,28 @@ class TaskCoordinator:
             else:
                 assert plan is not None
                 result = self.executor.run(request, plan)
+        except (BudgetExceededError, UnknownModelPricingError) as exc:
+            with self._execution_lock:
+                if self._is_canceled(task_id):
+                    return self.store.get(task_id)  # type: ignore[return-value]
+                self.store.update_status(task_id, TaskStatus.BLOCKED, str(exc))
+                self.store.append_event(task_id, "blocked", str(exc))
+                return self.store.get(task_id)  # type: ignore[return-value]
         except Exception as exc:
+            if reservation_id and self.budget is not None:
+                self.budget.release(reservation_id)
             with self._execution_lock:
                 if self._is_canceled(task_id):
                     return self.store.get(task_id)  # type: ignore[return-value]
                 self.store.update_status(task_id, TaskStatus.FAILED, f"native executor failed: {exc}")
                 self.store.append_event(task_id, "failed", "native executor failed before a result was recorded")
                 return self.store.get(task_id)  # type: ignore[return-value]
+
+        if reservation_id and self.budget is not None:
+            if result.get("failed") is True or result.get("blocked") is True:
+                self.budget.release(reservation_id)
+            else:
+                self.budget.reconcile(reservation_id)
 
         with self._execution_lock:
             if self._is_canceled(task_id):

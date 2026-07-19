@@ -12,11 +12,11 @@ from .agentic_explore import is_cloud_model, locate_target_with_exploration
 from .context import generate_project_context, read_project_context
 from .contracts import RunMode, TaskRequest, TaskStatus
 from .explore import explore_project
-from .intent import classify_intent, classify_intent_floor
+from .intent import classify_intent
 from .model_policy import ModelPolicyError
 from .plan import draft_edit_plan, draft_evidence_plan
 from .project_resolution import resolve_project_reference
-from .qualification import run_offline_edit_corpus
+from .qualification import build_native_edit_runner, run_offline_edit_corpus
 from .router import recommend_route
 from .service import TaskCoordinator
 from .skills import list_builtin_sops
@@ -143,10 +143,14 @@ def create_app(coordinator: TaskCoordinator, *, auth_token: str | None = None) -
             provider = profile.provider.value
         except ModelPolicyError as exc:
             return jsonify({"error": str(exc)}), 400
+        edit_runner = None
+        if provider != "cloud" and hasattr(coordinator.executor, "run"):
+            edit_runner = build_native_edit_runner(coordinator.executor)
         evidence = run_offline_edit_corpus(
             model,
             provider=provider,
             store=coordinator.qualification,
+            edit_runner=edit_runner,
         )
         return jsonify(evidence.to_json())
 
@@ -311,7 +315,17 @@ def create_app(coordinator: TaskCoordinator, *, auth_token: str | None = None) -
                 "error": "plan drafting is available only before proposal preparation",
             }), 409
         project_root = Path(record.request.project_root)
-        intent = classify_intent_floor(record.request.request, project_root)
+        chat_fn = None
+        adapter = getattr(coordinator.executor, "model", None)
+        complete_text = getattr(adapter, "complete_text", None) if adapter is not None else None
+        if callable(complete_text) and record.request.chat_model:
+            chat_fn = complete_text
+        intent = classify_intent(
+            record.request.request,
+            project_root,
+            model=record.request.chat_model if chat_fn is not None else None,
+            chat_fn=chat_fn,
+        )
         result = draft_evidence_plan(record.request.request, project_root)
         if not result.ok or result.plan is None:
             # Fall back to a bounded edit plan for a request that names one

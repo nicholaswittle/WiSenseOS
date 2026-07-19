@@ -85,46 +85,73 @@ void main() {
       controller.dispose();
     });
 
-    test('cloud-Autopilot refusal blocks validation in UI controller', () async {
+    test('cloud-only runtime keeps Ask Before Changes and refuses Autopilot/Offline', () async {
       final fakeClient = FakeHttpClient((request) async {
-        return http.Response(jsonEncode({'projects': [], 'models': [], 'tasks': []}), 200);
+        if (request.url.path.endsWith('/projects')) {
+          return http.Response(
+            jsonEncode({
+              'projects': [
+                {
+                  'project_id': 'proj-1',
+                  'display_name': 'Billing',
+                  'root': 'C:/proj',
+                  'local_autopilot_trusted': false,
+                }
+              ]
+            }),
+            200,
+          );
+        }
+        if (request.url.path.endsWith('/models')) {
+          return http.Response(
+            jsonEncode({
+              'models': [
+                {
+                  'name': 'gemma4:31b-cloud',
+                  'provider': 'cloud',
+                  'roles': ['builder'],
+                  'available': true,
+                  'supervised_testing_only': true,
+                  'future_local_target': true,
+                },
+                {
+                  'name': 'glm-5.2:cloud',
+                  'provider': 'cloud',
+                  'roles': ['chat', 'planner', 'builder'],
+                  'available': true,
+                  'supervised_testing_only': true,
+                  'future_local_target': false,
+                },
+              ]
+            }),
+            200,
+          );
+        }
+        if (request.url.path.endsWith('/tasks')) {
+          return http.Response(jsonEncode({'tasks': []}), 200);
+        }
+        return http.Response('Not Found', 404);
       });
 
       final engineClient = WiSenseEngineClient(client: fakeClient);
       final controller = TaskComposerController(client: engineClient);
+      await controller.load();
 
-      const cloudModel = EngineModelProfile(
-        name: 'claude-3-7-sonnet',
-        provider: 'anthropic',
-        roles: ['builder'],
-        available: true,
-        supervisedTestingOnly: true,
-        futureLocalTarget: false,
-      );
+      expect(controller.isCloudAssistedOnly, isTrue);
+      expect(controller.hasLocalBuilder, isFalse);
 
-      const project = EngineProject(
-        projectId: 'proj-1',
-        displayName: 'Billing',
-        root: 'C:/proj',
-        localAutopilotTrusted: false,
-      );
-
-      controller.selectProject(project);
-      controller.selectChatModel(cloudModel);
-      controller.selectBuilderModel(cloudModel);
       controller.selectMode('local_autopilot');
-      controller.updateRequestText('Perform live autopilot refactor');
+      expect(controller.selectedMode, equals('ask_before_changes'));
+      expect(controller.isAutopilotBlockedByCloud, isFalse);
 
+      controller.setOffline(true);
+      expect(controller.offline, isFalse);
+
+      controller.updateRequestText('Fix billing totals');
+      expect(controller.isValid, isTrue);
+      expect(controller.selectedMode, equals('ask_before_changes'));
       expect(controller.isCloudBuilderSelected, isTrue);
-      expect(controller.isAutopilotBlockedByCloud, isTrue);
-      expect(controller.isValid, isFalse);
-      expect(
-        controller.autopilotBlockedReason,
-        contains('Local Autopilot is disabled when using a cloud builder model'),
-      );
 
-      final result = await controller.submitTask();
-      expect(result, isNull);
       controller.dispose();
     });
 

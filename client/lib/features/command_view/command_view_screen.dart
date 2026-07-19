@@ -197,6 +197,12 @@ class _CommandViewScreenState extends State<CommandViewScreen> {
             'Model Qualification Scorecard',
             style: Theme.of(context).textTheme.titleLarge,
           ),
+          const SizedBox(height: 6),
+          Text(
+            'Offline corpus only. Cloud builders record as not_applicable — that is expected '
+            'before a local builder is installed. Do not treat N/A as a failed qualification.',
+            style: Theme.of(context).textTheme.bodySmall,
+          ),
           const SizedBox(height: 8),
           Align(
             alignment: Alignment.centerLeft,
@@ -213,8 +219,8 @@ class _CommandViewScreenState extends State<CommandViewScreen> {
                   : const Icon(Icons.science_outlined),
               label: Text(
                 controller.runningQualification
-                    ? 'Running offline corpus…'
-                    : 'Run offline qualification',
+                    ? 'Recording baselines…'
+                    : 'Refresh qualification baselines',
               ),
             ),
           ),

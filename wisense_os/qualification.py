@@ -166,6 +166,55 @@ def _default_edit_runner(task: CorpusTask, scratch: Path, model: str) -> bool:
     return False
 
 
+def build_native_edit_runner(executor: Any) -> EditRunner:
+    """Qualify a builder via propose→apply→test on an isolated scratch tree.
+
+    Never touches production projects. Commit is disabled on the executor's
+    success path by using LOCAL_AUTOPILOT against the temp workspace only.
+    """
+    from .contracts import RunMode, TaskRequest
+    from .plan import TaskPlan
+
+    def runner(task: CorpusTask, scratch: Path, model: str) -> bool:
+        test_file = next(
+            (
+                name for name in task.seed_files
+                if name != task.target_file and (
+                    Path(name).name.startswith("test_") or name.endswith("_test.py")
+                )
+            ),
+            None,
+        )
+        if test_file is None:
+            return False
+        plan = TaskPlan(
+            title=f"Qualify {task.task_id}",
+            summary=task.description,
+            files=(task.target_file, test_file),
+            api_contract=(
+                "Preserve the existing public interface unless the task requires a change.",
+            ),
+            acceptance=(f"{test_file} passes.", "No unrelated files are modified."),
+            source="qualification",
+        )
+        request = TaskRequest(
+            request=task.description,
+            project_root=str(scratch.resolve()),
+            mode=RunMode.LOCAL_AUTOPILOT,
+            chat_model=model,
+            builder_model=model,
+            offline=True,
+        )
+        result = executor.run(request, plan)
+        return (
+            result.get("failed") is not True
+            and result.get("blocked") is not True
+            and "verification" in result
+        )
+
+    return runner
+
+
 def run_offline_edit_corpus(
     model: str,
     *,
@@ -219,6 +268,10 @@ def run_offline_edit_corpus(
         status = "qualified"
     else:
         status = "failed"
+    max_rewrite = 0
+    for task in corpus:
+        for content in task.seed_files.values():
+            max_rewrite = max(max_rewrite, len(content.encode("utf-8")))
     evidence = QualificationEvidence(
         model=model,
         status=status,
@@ -226,6 +279,7 @@ def run_offline_edit_corpus(
         lane="edit",
         detail="; ".join(details),
         recorded_at=now,
+        max_rewrite_bytes_seen=max_rewrite or None,
     )
     store.record(evidence)
     return evidence

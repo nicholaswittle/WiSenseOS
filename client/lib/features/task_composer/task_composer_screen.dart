@@ -283,21 +283,22 @@ class _TaskComposerScreenState extends State<TaskComposerScreen> {
           ),
           const SizedBox(height: 6),
           SegmentedButton<String>(
-            segments: const [
-              ButtonSegment(
+            segments: [
+              const ButtonSegment(
                 value: 'talk_only',
                 label: Text('Talk Only'),
                 icon: Icon(Icons.chat_bubble_outline),
               ),
-              ButtonSegment(
+              const ButtonSegment(
                 value: 'ask_before_changes',
                 label: Text('Ask Before Changes'),
                 icon: Icon(Icons.rule),
               ),
               ButtonSegment(
                 value: 'local_autopilot',
-                label: Text('Local Autopilot'),
-                icon: Icon(Icons.bolt),
+                label: const Text('Local Autopilot'),
+                icon: const Icon(Icons.bolt),
+                enabled: controller.hasLocalBuilder,
               ),
             ],
             selected: {controller.selectedMode},
@@ -307,6 +308,30 @@ class _TaskComposerScreenState extends State<TaskComposerScreen> {
                     controller.selectMode(newSelection.first);
                   },
           ),
+          if (controller.isCloudAssistedOnly) ...[
+            const SizedBox(height: 8),
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: Colors.blueGrey.shade50,
+                border: Border.all(color: Colors.blueGrey.shade300),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Row(
+                children: [
+                  Icon(Icons.cloud_outlined, color: Colors.blueGrey.shade700),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      'Cloud-assisted operation: no offline builder is installed yet. '
+                      'Use Ask Before Changes; Local Autopilot and Offline unlock after the hardware upgrade.',
+                      style: TextStyle(color: Colors.blueGrey.shade900),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
           if (controller.isAutopilotBlockedByCloud) ...[
             const SizedBox(height: 8),
             Container(
@@ -333,10 +358,23 @@ class _TaskComposerScreenState extends State<TaskComposerScreen> {
           SwitchListTile(
             contentPadding: EdgeInsets.zero,
             title: const Text('Offline (local models only)'),
-            subtitle: const Text('Hard-blocks every cloud route, including planning and recovery.'),
+            subtitle: Text(
+              controller.isCloudAssistedOnly
+                  ? 'Unavailable until a local builder is installed — cloud routes would all be blocked.'
+                  : 'Hard-blocks every cloud route, including planning and recovery.',
+            ),
             value: controller.offline,
-            onChanged: controller.submitting ? null : controller.setOffline,
+            onChanged: (controller.submitting || controller.isCloudAssistedOnly)
+                ? null
+                : controller.setOffline,
           ),
+          if (controller.offlineBlockedReason != null) ...[
+            const SizedBox(height: 4),
+            Text(
+              controller.offlineBlockedReason!,
+              style: TextStyle(color: Colors.red.shade800, fontSize: 12),
+            ),
+          ],
           const SizedBox(height: 8),
 
           // Model Selection Row

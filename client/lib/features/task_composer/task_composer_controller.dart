@@ -75,12 +75,31 @@ class TaskComposerController extends ChangeNotifier {
       _selectedBuilderModel?.isCloud == true ||
       _selectedBuilderModel?.supervisedTestingOnly == true;
 
-  bool get isAutopilotBlockedByCloud =>
-      _selectedMode == 'local_autopilot' && isCloudBuilderSelected;
+  /// True when no local builder profile is configured/available yet
+  /// (expected before the hardware upgrade).
+  bool get hasLocalBuilder =>
+      builderModels.any((model) => !model.isCloud && model.available);
 
-  String? get autopilotBlockedReason => isAutopilotBlockedByCloud
-      ? 'Local Autopilot is disabled when using a cloud builder model (supervised testing).'
-      : null;
+  bool get isCloudAssistedOnly => !hasLocalBuilder;
+
+  bool get isAutopilotBlockedByCloud =>
+      _selectedMode == 'local_autopilot' &&
+      (isCloudBuilderSelected || isCloudAssistedOnly);
+
+  String? get autopilotBlockedReason {
+    if (!isAutopilotBlockedByCloud) return null;
+    if (isCloudAssistedOnly) {
+      return 'Local Autopilot needs a qualified offline builder. '
+          'Until the hardware upgrade, use Ask Before Changes with a cloud builder (supervised testing).';
+    }
+    return 'Local Autopilot is disabled when using a cloud builder model (supervised testing).';
+  }
+
+  String? get offlineBlockedReason {
+    if (!_offline || hasLocalBuilder) return null;
+    return 'Offline mode hard-blocks every cloud model. With only cloud profiles '
+        'configured, leave Offline off until a local builder is installed.';
+  }
 
   bool get isAccepted => _lastSubmissionResult?.status == 'accepted';
 
@@ -122,6 +141,7 @@ class TaskComposerController extends ChangeNotifier {
       _selectedBuilderModel != null &&
       _requestText.trim().isNotEmpty &&
       !isAutopilotBlockedByCloud &&
+      !(_offline && isCloudAssistedOnly) &&
       !isWaitingForProviderInput &&
       !_submitting &&
       !_approving &&
@@ -202,11 +222,22 @@ class TaskComposerController extends ChangeNotifier {
   }
 
   void selectMode(String mode) {
+    if (mode == 'local_autopilot' && isCloudAssistedOnly) {
+      _selectedMode = 'ask_before_changes';
+      notifyListeners();
+      return;
+    }
     _selectedMode = mode;
     notifyListeners();
   }
 
   void setOffline(bool value) {
+    // Cloud-assisted installs cannot satisfy Offline; keep the toggle honest.
+    if (value && isCloudAssistedOnly) {
+      _offline = false;
+      notifyListeners();
+      return;
+    }
     _offline = value;
     notifyListeners();
   }
