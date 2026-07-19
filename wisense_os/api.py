@@ -10,6 +10,7 @@ from flask import Flask, jsonify, request
 
 from .contracts import RunMode, TaskRequest, TaskStatus
 from .plan import draft_evidence_plan
+from .project_resolution import resolve_project_reference
 from .service import TaskCoordinator
 
 
@@ -60,6 +61,23 @@ def create_app(coordinator: TaskCoordinator, *, auth_token: str | None = None) -
         except ValueError as exc:
             return jsonify({"error": str(exc)}), 400
         return jsonify(project.to_json()), 201
+
+    @app.post("/api/v1/projects/resolve")
+    def resolve_project():
+        data = request.get_json(force=True)
+        phrase = str(data.get("phrase", "")).strip()
+        if not phrase:
+            return jsonify({"error": "phrase is required"}), 400
+        matches = resolve_project_reference(phrase, coordinator.store.list_projects())
+        return jsonify({
+            "phrase": phrase,
+            "decisive": len(matches) == 1,
+            "matches": [
+                {"project_id": m.project_id, "display_name": m.display_name,
+                 "root": m.root, "score": m.score}
+                for m in matches
+            ],
+        })
 
     @app.get("/api/v1/tasks")
     def task_history():
