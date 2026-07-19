@@ -53,6 +53,19 @@ def _safe_rel(root: Path, path: Path) -> str | None:
         return None
 
 
+def is_safe_project_relative_file(project_root: Path, rel_path: str) -> bool:
+    """True only for an existing file inside project_root (no escape)."""
+    normalized = rel_path.replace("\\", "/").strip()
+    if not normalized or normalized.startswith("/") or ".." in Path(normalized).parts:
+        return False
+    candidate = (project_root / normalized).resolve()
+    try:
+        candidate.relative_to(project_root.resolve())
+    except (OSError, ValueError):
+        return False
+    return candidate.is_file()
+
+
 def find_explicit_filename(root: Path, text: str) -> Path | None:
     for match in _FILENAME.finditer(text):
         mentioned = match.group(0).replace("\\", "/")

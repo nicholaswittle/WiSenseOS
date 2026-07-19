@@ -195,18 +195,107 @@ class WiSenseEngineClient {
     return EngineTaskStatus.fromJson(body, statusCode: response.statusCode);
   }
 
+  Future<List<EngineSOPWorkflow>> listSOPs() async {
+    final response = await _client.get(
+      _endpoint('/api/v1/sops'),
+      headers: await _headers(),
+    );
+    final body = _body(response);
+    _requireSuccess(response, body, 'List SOP workflows');
+    return ((body['sops'] as List?) ?? const [])
+        .whereType<Map>()
+        .map((sop) => EngineSOPWorkflow.fromJson(Map<String, dynamic>.from(sop)))
+        .toList(growable: false);
+  }
+
+  Future<EngineRouteRecommendation> getRouteRecommendation(String requestText) async {
+    final response = await _client.post(
+      _endpoint('/api/v1/router/recommend'),
+      headers: await _headers(),
+      body: jsonEncode({'request': requestText}),
+    );
+    final body = _body(response);
+    _requireSuccess(response, body, 'Get route recommendation');
+    return EngineRouteRecommendation.fromJson(body);
+  }
+
   Future<EngineTaskPlan> draftTaskPlan(String taskId) async {
     final response = await _client.post(
       _endpoint('/api/v1/tasks/$taskId/plan-draft'),
       headers: await _headers(),
     );
     final body = _body(response);
-    _requireSuccess(response, body, 'Draft task plan');
-    final plan = body['plan'];
-    if (body['ok'] != true || plan is! Map) {
-      throw EngineApiException(statusCode: response.statusCode, message: 'Engine did not return a task plan', body: body);
+    if (response.statusCode >= 200 && response.statusCode < 300) {
+      final plan = body['plan'];
+      if (body['ok'] == true && plan is Map) {
+        return EngineTaskPlan.fromJson(Map<String, dynamic>.from(plan));
+      }
+      throw EngineApiException(
+        statusCode: response.statusCode,
+        message: 'Engine did not return a task plan',
+        body: body,
+      );
     }
-    return EngineTaskPlan.fromJson(Map<String, dynamic>.from(plan));
+    final hint = body['hint']?.toString();
+    final intent = body['intent'];
+    final intentKind = intent is Map ? intent['kind']?.toString() : null;
+    final reason = body['reason']?.toString() ?? 'plan_draft_failed';
+    final parts = <String>[reason];
+    if (intentKind != null && intentKind.isNotEmpty) {
+      parts.add('intent=$intentKind');
+    }
+    if (hint != null && hint.isNotEmpty) {
+      parts.add(hint);
+    }
+    throw EngineApiException(
+      statusCode: response.statusCode,
+      message: parts.join(' — '),
+      body: body,
+    );
+  }
+
+  Future<EngineIntent> classifyIntent({
+    required String request,
+    required String projectRoot,
+    String? chatModel,
+  }) async {
+    final payload = <String, dynamic>{
+      'request': request,
+      'project_root': projectRoot,
+      if (chatModel != null && chatModel.isNotEmpty) 'chat_model': chatModel,
+    };
+    final response = await _client.post(
+      _endpoint('/api/v1/intent'),
+      headers: await _headers(),
+      body: jsonEncode(payload),
+    );
+    final body = _body(response);
+    _requireSuccess(response, body, 'Classify intent');
+    final intent = body['intent'];
+    if (intent is! Map) {
+      throw EngineApiException(
+        statusCode: response.statusCode,
+        message: 'Engine did not return intent',
+        body: body,
+      );
+    }
+    return EngineIntent.fromJson(Map<String, dynamic>.from(intent));
+  }
+
+  Future<EngineQualificationScore> runQualification(String model) async {
+    final response = await _client.post(
+      _endpoint('/api/v1/qualification/run'),
+      headers: await _headers(),
+      body: jsonEncode({'model': model}),
+    );
+    final body = _body(response);
+    _requireSuccess(response, body, 'Run qualification');
+    return EngineQualificationScore.fromJson({
+      'name': body['model'] ?? model,
+      'score': body['score'],
+      'status': body['status'] ?? 'unevaluated',
+      'detail': body['detail'] ?? '',
+    });
   }
 
   Future<EngineTaskStatus> cancelTask(String taskId) async {

@@ -5,6 +5,8 @@ import 'features/command_view/command_view_controller.dart';
 import 'features/command_view/command_view_screen.dart';
 import 'features/engine_status/engine_status_controller.dart';
 import 'features/engine_status/engine_status_screen.dart';
+import 'features/sop_library/sop_library_controller.dart';
+import 'features/sop_library/sop_library_screen.dart';
 import 'features/task_composer/task_composer_controller.dart';
 import 'features/task_composer/task_composer_screen.dart';
 import 'features/task_history/task_history_controller.dart';
@@ -34,6 +36,7 @@ class _WiSenseOSAppState extends State<WiSenseOSApp> {
   late final TaskComposerController _composerController;
   late final TaskHistoryController _historyController;
   late final CommandViewController _commandController;
+  late final SOPLibraryController _sopController;
   int _currentIndex = 0;
 
   @override
@@ -44,6 +47,7 @@ class _WiSenseOSAppState extends State<WiSenseOSApp> {
     _composerController = TaskComposerController(client: _client);
     _historyController = TaskHistoryController(client: _client);
     _commandController = CommandViewController(client: _client);
+    _sopController = SOPLibraryController(client: _client);
   }
 
   @override
@@ -52,6 +56,7 @@ class _WiSenseOSAppState extends State<WiSenseOSApp> {
     _composerController.dispose();
     _historyController.dispose();
     _commandController.dispose();
+    _sopController.dispose();
     super.dispose();
   }
 
@@ -71,6 +76,16 @@ class _WiSenseOSAppState extends State<WiSenseOSApp> {
             TaskComposerScreen(controller: _composerController),
             TaskHistoryScreen(controller: _historyController),
             CommandViewScreen(controller: _commandController),
+            SOPLibraryScreen(
+              controller: _sopController,
+              onSelectSOP: (sop) {
+                _composerController.updateRequestText(sop.defaultRequest);
+                _composerController.selectMode(sop.recommendedMode);
+                setState(() {
+                  _currentIndex = 1; // Jump to Task Composer tab
+                });
+              },
+            ),
           ],
         ),
         bottomNavigationBar: BottomNavigationBar(
@@ -101,6 +116,11 @@ class _WiSenseOSAppState extends State<WiSenseOSApp> {
               icon: Icon(Icons.analytics_outlined),
               activeIcon: Icon(Icons.analytics),
               label: 'Command View',
+            ),
+            BottomNavigationBarItem(
+              icon: Icon(Icons.auto_awesome_outlined),
+              activeIcon: Icon(Icons.auto_awesome),
+              label: 'SOP Workflows',
             ),
           ],
         ),

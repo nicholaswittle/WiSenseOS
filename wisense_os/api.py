@@ -8,12 +8,17 @@ from pathlib import Path
 
 from flask import Flask, jsonify, request
 
+from .context import generate_project_context, read_project_context
 from .contracts import RunMode, TaskRequest, TaskStatus
 from .explore import explore_project
+from .intent import classify_intent, classify_intent_floor
 from .model_policy import ModelPolicyError
 from .plan import draft_edit_plan, draft_evidence_plan
 from .project_resolution import resolve_project_reference
+from .qualification import run_offline_edit_corpus
+from .router import recommend_route
 from .service import TaskCoordinator
+from .skills import list_builtin_sops
 
 
 def create_app(coordinator: TaskCoordinator, *, auth_token: str | None = None) -> Flask:
@@ -87,6 +92,29 @@ def create_app(coordinator: TaskCoordinator, *, auth_token: str | None = None) -
             "budget": budget,
         })
 
+    @app.get("/api/v1/sops")
+    def sops():
+        return jsonify({"sops": [sop.to_json() for sop in list_builtin_sops()]})
+
+    @app.post("/api/v1/router/recommend")
+    def router_recommend():
+        data = request.get_json(force=True) or {}
+        req_text = data.get("request", "")
+        recommendation = recommend_route(req_text, coordinator.models.profiles())
+        return jsonify(recommendation.to_json())
+
+    @app.post("/api/v1/projects/context")
+    def project_context():
+        data = request.get_json(force=True) or {}
+        root = data.get("root", "")
+        if not root:
+            return jsonify({"error": "root is required"}), 400
+        root_path = Path(root)
+        if not root_path.is_dir():
+            return jsonify({"error": "project root directory does not exist"}), 404
+        content = read_project_context(root_path)
+        return jsonify({"root": str(root_path.resolve()), "context": content})
+
     @app.get("/api/v1/budget")
     def budget():
         if coordinator.budget is None:
@@ -100,6 +128,48 @@ def create_app(coordinator: TaskCoordinator, *, auth_token: str | None = None) -
         return jsonify({
             "qualification": [item.to_json() for item in coordinator.qualification.list_results()],
         })
+
+    @app.post("/api/v1/qualification/run")
+    def qualification_run():
+        if coordinator.qualification is None:
+            return jsonify({"error": "qualification store is not configured"}), 404
+        data = request.get_json(force=True) or {}
+        model = str(data.get("model", "")).strip()
+        if not model:
+            return jsonify({"error": "model is required"}), 400
+        try:
+            profile = coordinator.models.get(model)
+            provider = profile.provider.value
+        except ModelPolicyError as exc:
+            return jsonify({"error": str(exc)}), 400
+        evidence = run_offline_edit_corpus(
+            model,
+            provider=provider,
+            store=coordinator.qualification,
+        )
+        return jsonify(evidence.to_json())
+
+    @app.post("/api/v1/intent")
+    def classify_request_intent():
+        data = request.get_json(force=True) or {}
+        phrase = str(data.get("request", "")).strip()
+        project_root = str(data.get("project_root", "")).strip()
+        chat_model = str(data.get("chat_model", "")).strip()
+        if not phrase or not project_root:
+            return jsonify({"error": "request and project_root are required"}), 400
+        root = Path(project_root)
+        if not root.is_dir():
+            return jsonify({"error": "project_root must be an existing directory"}), 400
+
+        chat_fn = None
+        model_name = None
+        adapter = getattr(coordinator.executor, "model", None)
+        complete_text = getattr(adapter, "complete_text", None) if adapter is not None else None
+        if callable(complete_text) and chat_model:
+            model_name = chat_model
+            chat_fn = complete_text
+        intent = classify_intent(phrase, root, model=model_name, chat_fn=chat_fn)
+        return jsonify({"intent": intent.to_json()})
 
     @app.get("/api/v1/models")
     def models():
@@ -240,6 +310,7 @@ def create_app(coordinator: TaskCoordinator, *, auth_token: str | None = None) -
                 "error": "plan drafting is available only before proposal preparation",
             }), 409
         project_root = Path(record.request.project_root)
+        intent = classify_intent_floor(record.request.request, project_root)
         result = draft_evidence_plan(record.request.request, project_root)
         if not result.ok or result.plan is None:
             # Fall back to a bounded edit plan for a request that names one
@@ -247,7 +318,23 @@ def create_app(coordinator: TaskCoordinator, *, auth_token: str | None = None) -
             # reviews these exact files before approval.
             result = draft_edit_plan(record.request.request, project_root)
         if not result.ok or result.plan is None:
-            return jsonify({"ok": False, "reason": result.reason}), 422
+            payload = {
+                "ok": False,
+                "reason": result.reason,
+                "intent": intent.to_json(),
+            }
+            if intent.kind in {"question", "chat"}:
+                payload["hint"] = (
+                    "Use Talk Only for questions; Ask Before Changes is for write plans."
+                )
+            if intent.kind == "audit":
+                payload["context"] = explore_project(
+                    project_root, record.request.request,
+                ).to_json()
+                payload["hint"] = (
+                    "Audit/explore is read-only; name a specific edit target to draft a write plan."
+                )
+            return jsonify(payload), 422
         coordinator.store.save_plan(task_id, result.plan)
         envelope = explore_project(project_root, record.request.request)
         return jsonify({
@@ -255,6 +342,7 @@ def create_app(coordinator: TaskCoordinator, *, auth_token: str | None = None) -
             "task_id": task_id,
             "plan": result.plan.to_json(),
             "context": envelope.to_json(),
+            "intent": intent.to_json(),
         })
 
     @app.get("/api/v1/tasks/<task_id>")

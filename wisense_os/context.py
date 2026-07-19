@@ -1,0 +1,59 @@
+"""Persistent Project Context & Memory Engine for WiSense OS AIOS."""
+
+from __future__ import annotations
+
+from pathlib import Path
+
+
+def generate_project_context(project_root: Path) -> Path:
+    """Scan project structure and generate/update .wisense/CONTEXT.md."""
+    wisense_dir = project_root / ".wisense"
+    wisense_dir.mkdir(parents=True, exist_ok=True)
+    context_file = wisense_dir / "CONTEXT.md"
+
+    # Analyze project structure
+    subdirs = [p.name for p in project_root.iterdir() if p.is_dir() and not p.name.startswith(".")]
+    files = [p.name for p in project_root.iterdir() if p.is_file()]
+
+    # Detect language/framework
+    tech_stack = []
+    if (project_root / "pubspec.yaml").exists():
+        tech_stack.append("Flutter / Dart")
+    if (project_root / "pyproject.toml").exists() or (project_root / "setup.py").exists() or any(f.endswith(".py") for f in files):
+        tech_stack.append("Python")
+    if (project_root / "package.json").exists():
+        tech_stack.append("Node.js / JavaScript")
+
+    tech_str = ", ".join(tech_stack) if tech_stack else "General / Polyglot"
+
+    content = f"""# Project Topology & Memory Context
+
+**Project Name**: {project_root.name}
+**Root Path**: {project_root.resolve()}
+**Tech Stack**: {tech_str}
+
+## Directory Map
+- Subdirectories: {", ".join(sorted(subdirs)) if subdirs else "None"}
+- Root Files: {", ".join(sorted(files[:15]))}
+
+## AIOS Operating Guidelines
+- Preserve existing comments and docstrings.
+- Ensure all unit tests pass before committing changes.
+"""
+
+    context_file.write_text(content, encoding="utf-8")
+    return context_file
+
+
+def read_project_context(project_root: Path) -> str:
+    """Read project memory context if present, generating if missing."""
+    context_file = project_root / ".wisense" / "CONTEXT.md"
+    if not context_file.exists():
+        try:
+            generate_project_context(project_root)
+        except Exception:
+            return ""
+    try:
+        return context_file.read_text(encoding="utf-8")
+    except Exception:
+        return ""

@@ -316,6 +316,27 @@ class EngineComputeTelemetry {
       );
 }
 
+class EngineIntent {
+  const EngineIntent({
+    required this.kind,
+    this.targetFile,
+    this.reason = '',
+    this.source = 'floor',
+  });
+
+  final String kind;
+  final String? targetFile;
+  final String reason;
+  final String source;
+
+  factory EngineIntent.fromJson(Map<String, dynamic> json) => EngineIntent(
+        kind: json['kind']?.toString() ?? 'chat',
+        targetFile: json['target_file']?.toString(),
+        reason: json['reason']?.toString() ?? '',
+        source: json['source']?.toString() ?? 'floor',
+      );
+}
+
 class EngineQualificationScore {
   const EngineQualificationScore({
     required this.name,
@@ -331,7 +352,7 @@ class EngineQualificationScore {
 
   factory EngineQualificationScore.fromJson(Map<String, dynamic> json) =>
       EngineQualificationScore(
-        name: json['name']?.toString() ?? '',
+        name: json['name']?.toString() ?? json['model']?.toString() ?? '',
         score: (json['score'] as num?)?.toDouble(),
         status: json['status']?.toString() ?? 'unevaluated',
         detail: json['detail']?.toString() ?? '',
@@ -386,4 +407,56 @@ class EngineTelemetryReport {
           : null,
     );
   }
+}
+
+class EngineSOPWorkflow {
+  const EngineSOPWorkflow({
+    required this.id,
+    required this.name,
+    required this.category,
+    required this.description,
+    required this.defaultRequest,
+    required this.recommendedMode,
+  });
+
+  final String id;
+  final String name;
+  final String category;
+  final String description;
+  final String defaultRequest;
+  final String recommendedMode;
+
+  factory EngineSOPWorkflow.fromJson(Map<String, dynamic> json) => EngineSOPWorkflow(
+        id: json['id']?.toString() ?? '',
+        name: json['name']?.toString() ?? '',
+        category: json['category']?.toString() ?? '',
+        description: json['description']?.toString() ?? '',
+        defaultRequest: json['default_request']?.toString() ?? '',
+        recommendedMode: json['recommended_mode']?.toString() ?? 'ask_before_changes',
+      );
+}
+
+class EngineRouteRecommendation {
+  const EngineRouteRecommendation({
+    required this.chatModel,
+    required this.builderModel,
+    required this.complexity,
+    required this.reason,
+    required this.estimatedCost,
+  });
+
+  final String chatModel;
+  final String builderModel;
+  final String complexity;
+  final String reason;
+  final double estimatedCost;
+
+  factory EngineRouteRecommendation.fromJson(Map<String, dynamic> json) =>
+      EngineRouteRecommendation(
+        chatModel: json['chat_model']?.toString() ?? '',
+        builderModel: json['builder_model']?.toString() ?? '',
+        complexity: json['complexity']?.toString() ?? 'low',
+        reason: json['reason']?.toString() ?? '',
+        estimatedCost: (json['estimated_cost'] as num?)?.toDouble() ?? 0.0,
+      );
 }

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from pathlib import Path
 from threading import Lock
 from uuid import uuid4
 
@@ -10,6 +11,7 @@ import json
 from .budget import BudgetExceededError, BudgetLedger, UnknownModelPricingError, estimate_tokens
 from .contracts import ProviderKind, RunMode, TaskProposal, TaskRecord, TaskRequest, TaskStatus
 from .executor import TaskExecutor
+from .intent import classify_intent_floor
 from .plan import TaskPlan
 from .model_policy import ModelPolicyError, ModelRegistry
 from .qualification import QualificationStore
@@ -71,6 +73,15 @@ class TaskCoordinator:
                 task_id,
                 "accepted",
                 "task persisted; no model call has been made",
+            )
+        project_root = Path(request.project_root)
+        if project_root.is_dir():
+            intent = classify_intent_floor(request.request, project_root)
+            target = f" → {intent.target_file}" if intent.target_file else ""
+            self.store.append_event(
+                task_id,
+                "intent_classified",
+                f"{intent.kind}{target} ({intent.source}: {intent.reason})",
             )
         return record
 

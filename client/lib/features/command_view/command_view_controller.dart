@@ -9,10 +9,12 @@ class CommandViewController extends ChangeNotifier {
   final WiSenseEngineClient client;
 
   bool _loading = false;
+  bool _runningQualification = false;
   String? _error;
   EngineTelemetryReport? _telemetry;
 
   bool get loading => _loading;
+  bool get runningQualification => _runningQualification;
   String? get error => _error;
   EngineTelemetryReport? get telemetry => _telemetry;
 
@@ -29,6 +31,27 @@ class CommandViewController extends ChangeNotifier {
     } catch (e) {
       _loading = false;
       _error = 'Failed to load telemetry: $e';
+      notifyListeners();
+    }
+  }
+
+  /// Runs the offline edit corpus for each configured model.
+  /// Cloud models are recorded as not_applicable by the engine.
+  Future<void> runOfflineQualification() async {
+    if (_runningQualification) return;
+    _runningQualification = true;
+    _error = null;
+    notifyListeners();
+    try {
+      final models = await client.listModels();
+      for (final model in models) {
+        await client.runQualification(model.name);
+      }
+      await refresh();
+    } catch (e) {
+      _error = 'Qualification run failed: $e';
+    } finally {
+      _runningQualification = false;
       notifyListeners();
     }
   }

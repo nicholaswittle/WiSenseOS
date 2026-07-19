@@ -56,6 +56,10 @@ class ModelProfile:
     supervised_testing_only: bool
     future_local_target: bool = False
 
+    @property
+    def is_cloud(self) -> bool:
+        return self.provider is ProviderKind.CLOUD
+
     def to_json(self) -> dict[str, Any]:
         return {
             "name": self.name,

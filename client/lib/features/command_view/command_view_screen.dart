@@ -198,6 +198,27 @@ class _CommandViewScreenState extends State<CommandViewScreen> {
             style: Theme.of(context).textTheme.titleLarge,
           ),
           const SizedBox(height: 8),
+          Align(
+            alignment: Alignment.centerLeft,
+            child: FilledButton.tonalIcon(
+              onPressed: controller.runningQualification
+                  ? null
+                  : controller.runOfflineQualification,
+              icon: controller.runningQualification
+                  ? const SizedBox(
+                      width: 16,
+                      height: 16,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : const Icon(Icons.science_outlined),
+              label: Text(
+                controller.runningQualification
+                    ? 'Running offline corpus…'
+                    : 'Run offline qualification',
+              ),
+            ),
+          ),
+          const SizedBox(height: 8),
           if (qualification.isEmpty)
             const Text('No model qualification benchmarks recorded.')
           else

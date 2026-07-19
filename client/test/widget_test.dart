@@ -40,6 +40,8 @@ class _FakeClient extends http.BaseClient {
         },
         'qualification': [],
       };
+    } else if (path.contains('/sops')) {
+      body = {'sops': []};
     } else {
       body = {};
     }
