@@ -31,10 +31,35 @@ def _unwrap_json_fence(raw: str) -> str:
     return match.group(1) if match else raw
 
 
-def parse_patch_candidate(raw: str, plan: TaskPlan) -> PatchCandidate:
-    """Accept exact JSON, optionally wrapped in one JSON Markdown fence."""
+def _decode_final_json_object(raw: str) -> object:
+    """Decode exact JSON, or one final JSON object after a model lead-in.
+
+    The lead-in is ignored only because the decoded object still goes through
+    the exact reviewed-path and complete-content checks below. Any trailing
+    prose remains a rejection, preventing ambiguous multiple proposals.
+    """
+    normalized = _unwrap_json_fence(raw)
     try:
-        payload = json.loads(_unwrap_json_fence(raw))
+        return json.loads(normalized)
+    except json.JSONDecodeError as initial_error:
+        if not isinstance(normalized, str):
+            raise initial_error
+        start = normalized.find("{")
+        if start < 0:
+            raise initial_error
+        try:
+            payload, end = json.JSONDecoder().raw_decode(normalized, start)
+        except json.JSONDecodeError:
+            raise initial_error
+        if normalized[end:].strip():
+            raise initial_error
+        return payload
+
+
+def parse_patch_candidate(raw: str, plan: TaskPlan) -> PatchCandidate:
+    """Accept one final JSON candidate, optionally with a model lead-in or fence."""
+    try:
+        payload = _decode_final_json_object(raw)
     except (TypeError, json.JSONDecodeError) as exc:
         raise PatchProtocolError("candidate is not valid JSON") from exc
     entries = payload.get("files") if isinstance(payload, dict) else None

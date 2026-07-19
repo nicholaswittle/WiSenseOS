@@ -46,9 +46,21 @@ def test_candidate_accepts_a_single_whole_response_json_fence() -> None:
     }
 
 
+def test_candidate_accepts_one_final_json_object_after_a_model_lead_in() -> None:
+    raw = "I prepared the requested patch:\n" + proposal(
+        {"path": "app.py", "content": "after app"},
+        {"path": "test_app.py", "content": "after test"},
+    )
+
+    candidate = parse_patch_candidate(raw, plan())
+
+    assert dict(candidate.files)["app.py"] == "after app"
+
+
 @pytest.mark.parametrize("raw, error", [
     ("not json", "not valid JSON"),
     ("Here is the result:\n```json\n{}\n```", "not valid JSON"),
+    (proposal({"path": "app.py", "content": "x"}, {"path": "test_app.py", "content": "x"}) + "\nextra prose", "not valid JSON"),
     (json.dumps({"files": [{"path": "app.py", "content": "x"}]}), "omits reviewed"),
     (json.dumps({"files": [{"path": "app.py", "content": "x"}, {"path": "test_app.py", "content": "x"}, {"path": "other.py", "content": "x"}]}), "unreviewed"),
     (json.dumps({"files": [{"path": "app.py", "content": "x"}, {"path": "app.py", "content": "x"}]}), "repeats"),
