@@ -288,7 +288,7 @@ def create_app(coordinator: TaskCoordinator, *, auth_token: str | None = None) -
 
     @app.delete("/api/v1/tasks/<task_id>")
     def delete_task_route(task_id: str):
-        deleted = coordinator.store.delete_task(task_id)
+        deleted = coordinator.delete_task(task_id)
         if not deleted:
             return jsonify({"error": "task not found"}), 404
         return jsonify({"ok": True, "deleted_task_id": task_id}), 200

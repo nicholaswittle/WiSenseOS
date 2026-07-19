@@ -247,6 +247,11 @@ class TaskCoordinator:
             assert canceled is not None
             return canceled
 
+    def delete_task(self, task_id: str) -> bool:
+        """Purge a task and all associated records under the execution lock."""
+        with self._execution_lock:
+            return self.store.delete_task(task_id)
+
     def execute(self, task_id: str) -> TaskRecord:
         record = self.store.get(task_id)
         if record is None:
