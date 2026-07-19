@@ -15,6 +15,7 @@ class TaskComposerController extends ChangeNotifier {
   bool _draftingPlan = false;
   bool _canceling = false;
   String? _error;
+  String? _lastAction;
   List<EngineProject> _projects = const [];
   List<EngineModelProfile> _models = const [];
 
@@ -34,6 +35,7 @@ class TaskComposerController extends ChangeNotifier {
   bool get draftingPlan => _draftingPlan;
   bool get canceling => _canceling;
   String? get error => _error;
+  String? get lastAction => _lastAction;
   List<EngineProject> get projects => _projects;
   List<EngineModelProfile> get models => _models;
   List<EngineModelProfile> get chatModels =>
@@ -214,6 +216,7 @@ class TaskComposerController extends ChangeNotifier {
 
     _approving = true;
     _error = null;
+    _lastAction = 'Sending approval request to the local WiSense Engine…';
     notifyListeners();
 
     try {
@@ -222,11 +225,13 @@ class TaskComposerController extends ChangeNotifier {
       // endpoint owns the complete event timeline, so reload it immediately.
       _lastSubmissionResult = await client.getTask(result.taskId);
       _approving = false;
+      _lastAction = 'Engine accepted the approval request. Refreshing task state…';
       notifyListeners();
       return _lastSubmissionResult;
     } catch (e) {
       _approving = false;
       _error = 'Task approval failed: $e';
+      _lastAction = 'Approval request failed before the Engine accepted it.';
       notifyListeners();
       return null;
     }

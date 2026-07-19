@@ -357,6 +357,13 @@ class _TaskComposerScreenState extends State<TaskComposerScreen> {
             const Divider(height: 20),
             Text('Task ID: ${result.taskId.isNotEmpty ? result.taskId : "N/A"}'),
             Text('Status Stage: ${result.status}'),
+            if (controller.lastAction != null) ...[
+              const SizedBox(height: 6),
+              Text(
+                controller.lastAction!,
+                style: TextStyle(color: Colors.blueGrey.shade800, fontStyle: FontStyle.italic),
+              ),
+            ],
             if (result.reason != null) ...[
               const SizedBox(height: 6),
               Text(
