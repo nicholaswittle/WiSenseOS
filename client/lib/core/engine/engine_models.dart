@@ -45,6 +45,9 @@ class EngineModelProfile {
   final bool supervisedTestingOnly;
   final bool futureLocalTarget;
 
+  bool get isCloud =>
+      provider.isNotEmpty && provider != 'local' && provider != 'ollama';
+
   factory EngineModelProfile.fromJson(Map<String, dynamic> json) =>
       EngineModelProfile(
         name: json['name']?.toString() ?? '',

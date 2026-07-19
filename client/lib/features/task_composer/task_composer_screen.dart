@@ -201,7 +201,7 @@ class _TaskComposerScreenState extends State<TaskComposerScreen> {
                         border: OutlineInputBorder(),
                         contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 14),
                       ),
-                      items: controller.models.map((model) {
+                      items: controller.chatModels.map((model) {
                         return DropdownMenuItem<EngineModelProfile>(
                           value: model,
                           child: Text(_formatModelName(model)),
@@ -229,7 +229,7 @@ class _TaskComposerScreenState extends State<TaskComposerScreen> {
                         border: OutlineInputBorder(),
                         contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 14),
                       ),
-                      items: controller.models.map((model) {
+                      items: controller.builderModels.map((model) {
                         return DropdownMenuItem<EngineModelProfile>(
                           value: model,
                           child: Text(_formatModelName(model)),
@@ -275,8 +275,8 @@ class _TaskComposerScreenState extends State<TaskComposerScreen> {
   }
 
   String _formatModelName(EngineModelProfile model) {
-    if (model.supervisedTestingOnly) {
-      return '${model.name} (Cloud — supervised testing)';
+    if (model.isCloud && model.supervisedTestingOnly) {
+      return '${model.name} (Cloud - supervised testing)';
     } else if (model.futureLocalTarget) {
       return '${model.name} (Future local target)';
     }

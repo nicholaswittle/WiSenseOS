@@ -26,6 +26,10 @@ class TaskComposerController extends ChangeNotifier {
   String? get error => _error;
   List<EngineProject> get projects => _projects;
   List<EngineModelProfile> get models => _models;
+  List<EngineModelProfile> get chatModels =>
+      _models.where((model) => model.roles.contains('chat')).toList(growable: false);
+  List<EngineModelProfile> get builderModels =>
+      _models.where((model) => model.roles.contains('builder')).toList(growable: false);
 
   EngineProject? get selectedProject => _selectedProject;
   EngineModelProfile? get selectedChatModel => _selectedChatModel;
@@ -35,7 +39,7 @@ class TaskComposerController extends ChangeNotifier {
   EngineTaskStatus? get lastSubmissionResult => _lastSubmissionResult;
 
   bool get isCloudBuilderSelected =>
-      _selectedBuilderModel?.supervisedTestingOnly == true;
+      _selectedBuilderModel?.isCloud == true;
 
   bool get isAutopilotBlockedByCloud =>
       _selectedMode == 'local_autopilot' && isCloudBuilderSelected;
@@ -69,14 +73,8 @@ class TaskComposerController extends ChangeNotifier {
         _selectedProject = _projects.first;
       }
       if (_models.isNotEmpty) {
-        _selectedChatModel ??= _models.firstWhere(
-          (m) => m.roles.contains('chat') || m.roles.contains('planner'),
-          orElse: () => _models.first,
-        );
-        _selectedBuilderModel ??= _models.firstWhere(
-          (m) => m.roles.contains('builder'),
-          orElse: () => _models.first,
-        );
+        _selectedChatModel ??= chatModels.firstOrNull ?? _models.first;
+        _selectedBuilderModel ??= builderModels.firstOrNull ?? _models.first;
       }
 
       _loading = false;
