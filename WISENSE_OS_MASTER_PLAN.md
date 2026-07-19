@@ -15,9 +15,9 @@ The product is local-first:
 
 ### Current hardware reality and rollout policy
 
-WiSense OS must **not** assume that a reliable large local builder is available today. In the current machine configuration, local models may be used for limited experiments or lightweight tasks, but dependable implementation work can use an explicitly approved cloud builder through the engine's existing redaction, confirmation, and budget controls.
+WiSense OS must **not** assume that a reliable large local builder is available today. In the current machine configuration, local models may be used for limited experiments or lightweight tasks, but dependable implementation work uses explicitly approved Ollama Cloud profiles through the engine's existing redaction, confirmation, and budget controls: `gemma4:31b-cloud` for supervised builder testing and `glm-5.2:cloud` for supervised chat/planning testing.
 
-The target after the planned hardware upgrade is reliable offline operation with a Gemma-class local builder. That is a future capability milestone, not a prerequisite for the first WiSense OS bridge and not a reason to pretend that a `gemma4:31b` cloud or local service exists today.
+The target after the planned hardware upgrade is reliable offline operation with a Gemma-class local builder. That is a future capability milestone, not a prerequisite for the first WiSense OS bridge. The current `gemma4:31b-cloud` profile is a cloud testing profile and must always be labeled as cloud; it is not evidence that a matching local model service is ready.
 
 Model policy is therefore capability-based and configuration-driven:
 

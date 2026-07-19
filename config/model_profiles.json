@@ -1,0 +1,19 @@
+[
+  {
+    "name": "gemma4:31b-cloud",
+    "provider": "cloud",
+    "roles": ["builder"],
+    "available": true,
+    "supervised_testing_only": true,
+    "future_local_target": true
+  },
+  {
+    "name": "glm-5.2:cloud",
+    "provider": "cloud",
+    "roles": ["chat", "planner"],
+    "available": true,
+    "supervised_testing_only": true,
+    "future_local_target": false
+  }
+]
+
