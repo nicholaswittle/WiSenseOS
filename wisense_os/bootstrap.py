@@ -38,6 +38,7 @@ def issue_launch_token(state_dir: Path) -> str:
     state_dir.mkdir(parents=True, exist_ok=True)
     token = secrets.token_urlsafe(32)
     (state_dir / "engine_token").write_text(token, encoding="utf-8")
+    (state_dir / "engine.token").write_text(token, encoding="utf-8")
     return token
 
 

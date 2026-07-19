@@ -1,16 +1,38 @@
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:http/http.dart' as http;
 
 import 'engine_models.dart';
 
+Future<String?> readDefaultWindowsToken() async {
+  try {
+    final localAppData = Platform.environment['LOCALAPPDATA'];
+    if (localAppData == null || localAppData.isEmpty) return null;
+    final tokenFile = File('$localAppData\\WiSenseOS\\engine.token');
+    if (await tokenFile.exists()) {
+      final text = await tokenFile.readAsString();
+      return text.trim();
+    }
+    final tokenFileAlt = File('$localAppData\\WiSenseOS\\engine_token');
+    if (await tokenFileAlt.exists()) {
+      final text = await tokenFileAlt.readAsString();
+      return text.trim();
+    }
+  } catch (_) {
+    // Fail closed quietly
+  }
+  return null;
+}
+
 class WiSenseEngineClient {
   WiSenseEngineClient({
     Uri? baseUri,
     http.Client? client,
-    this.tokenProvider,
+    Future<String?> Function()? tokenProvider,
   })  : _baseUri = baseUri ?? Uri.parse('http://127.0.0.1:5050'),
-        _client = client ?? http.Client();
+        _client = client ?? http.Client(),
+        tokenProvider = tokenProvider ?? readDefaultWindowsToken;
 
   final Uri _baseUri;
   final http.Client _client;
@@ -24,6 +46,16 @@ class WiSenseEngineClient {
     final body = _body(response);
     _requireSuccess(response, body, 'Health check');
     return EngineHealth.fromJson(body);
+  }
+
+  Future<EngineTelemetryReport> getTelemetry() async {
+    final response = await _client.get(
+      _endpoint('/api/v1/telemetry'),
+      headers: await _headers(),
+    );
+    final body = _body(response);
+    _requireSuccess(response, body, 'Get telemetry');
+    return EngineTelemetryReport.fromJson(body);
   }
 
   Future<List<EngineModelProfile>> listModels() async {

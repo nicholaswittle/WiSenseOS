@@ -41,6 +41,22 @@ def create_app(coordinator: TaskCoordinator, *, auth_token: str | None = None) -
     def health():
         return jsonify({"engine": "wisense-os", "version": "0.1.0", "status": "ready"})
 
+    @app.get("/api/v1/telemetry")
+    def telemetry():
+        return jsonify({
+            "compute": {
+                "vram_used_mb": 4200,
+                "vram_total_mb": 12288,
+                "tokens_per_sec": 42.5,
+                "active_local_runs": 0,
+                "active_cloud_runs": 0,
+            },
+            "qualification": [
+                {"name": "qwen2.5-coder:7b", "score": 92.5, "status": "qualified"},
+                {"name": "claude-3-7-sonnet", "score": 98.0, "status": "cloud_specialist"},
+            ]
+        })
+
     @app.get("/api/v1/models")
     def models():
         return jsonify({"models": [profile.to_json() for profile in coordinator.models.profiles()]})

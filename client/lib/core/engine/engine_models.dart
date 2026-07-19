@@ -199,3 +199,69 @@ class EngineTaskStatus {
     );
   }
 }
+
+class EngineComputeTelemetry {
+  const EngineComputeTelemetry({
+    required this.vramUsedMb,
+    required this.vramTotalMb,
+    required this.tokensPerSec,
+    required this.activeLocalRuns,
+    required this.activeCloudRuns,
+  });
+
+  final int vramUsedMb;
+  final int vramTotalMb;
+  final double tokensPerSec;
+  final int activeLocalRuns;
+  final int activeCloudRuns;
+
+  factory EngineComputeTelemetry.fromJson(Map<String, dynamic> json) =>
+      EngineComputeTelemetry(
+        vramUsedMb: (json['vram_used_mb'] as num?)?.toInt() ?? 0,
+        vramTotalMb: (json['vram_total_mb'] as num?)?.toInt() ?? 0,
+        tokensPerSec: (json['tokens_per_sec'] as num?)?.toDouble() ?? 0.0,
+        activeLocalRuns: (json['active_local_runs'] as num?)?.toInt() ?? 0,
+        activeCloudRuns: (json['active_cloud_runs'] as num?)?.toInt() ?? 0,
+      );
+}
+
+class EngineQualificationScore {
+  const EngineQualificationScore({
+    required this.name,
+    required this.score,
+    required this.status,
+  });
+
+  final String name;
+  final double score;
+  final String status;
+
+  factory EngineQualificationScore.fromJson(Map<String, dynamic> json) =>
+      EngineQualificationScore(
+        name: json['name']?.toString() ?? '',
+        score: (json['score'] as num?)?.toDouble() ?? 0.0,
+        status: json['status']?.toString() ?? 'unqualified',
+      );
+}
+
+class EngineTelemetryReport {
+  const EngineTelemetryReport({
+    required this.compute,
+    required this.qualification,
+  });
+
+  final EngineComputeTelemetry compute;
+  final List<EngineQualificationScore> qualification;
+
+  factory EngineTelemetryReport.fromJson(Map<String, dynamic> json) {
+    final rawCompute = json['compute'] is Map ? json['compute'] as Map<String, dynamic> : <String, dynamic>{};
+    final rawQual = (json['qualification'] as List?) ?? const [];
+    return EngineTelemetryReport(
+      compute: EngineComputeTelemetry.fromJson(rawCompute),
+      qualification: rawQual
+          .whereType<Map>()
+          .map((item) => EngineQualificationScore.fromJson(Map<String, dynamic>.from(item)))
+          .toList(growable: false),
+    );
+  }
+}
