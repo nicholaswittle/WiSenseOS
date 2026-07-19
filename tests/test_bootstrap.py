@@ -122,7 +122,7 @@ def test_project_registry_rejects_missing_folder(tmp_path: Path) -> None:
     assert response.get_json() == {"error": "root must be an existing directory"}
 
 
-def test_ask_before_changes_requires_a_reviewed_plan_before_api_approval(tmp_path: Path) -> None:
+def test_ask_before_changes_requires_proposal_digest_before_api_approval(tmp_path: Path) -> None:
     app = create_default_app(tmp_path / "state")
     client = app.test_client()
     root = tmp_path / "project"
@@ -133,14 +133,14 @@ def test_ask_before_changes_requires_a_reviewed_plan_before_api_approval(tmp_pat
         "builder_model": "gemma4:31b-cloud",
     }
 
-    waiting = client.post("/api/v1/tasks", json=payload)
-    task_id = waiting.get_json()["task_id"]
-    approved = client.post(f"/api/v1/tasks/{task_id}/approve")
+    accepted = client.post("/api/v1/tasks", json=payload)
+    task_id = accepted.get_json()["task_id"]
+    approved = client.post(f"/api/v1/tasks/{task_id}/approve", json={"digest": "abc"})
 
-    assert waiting.status_code == 202
-    assert waiting.get_json()["status"] == "waiting_for_approval"
+    assert accepted.status_code == 202
+    assert accepted.get_json()["status"] == "accepted"
     assert approved.status_code == 409
-    assert approved.get_json()["error"] == "task needs a reviewed plan before Engine handoff"
+    assert "not awaiting approval" in approved.get_json()["error"]
 
 
 def test_waiting_task_can_persist_an_evidence_backed_plan_before_handoff(tmp_path: Path) -> None:
@@ -191,7 +191,7 @@ def test_engine_restart_marks_running_work_as_interrupted(tmp_path: Path) -> Non
 
     recovered = create_default_app(tmp_path / "state").test_client().get(f"/api/v1/tasks/{task['task_id']}")
 
-    assert recovered.get_json()["status"] == "failed"
+    assert recovered.get_json()["status"] == "interrupted"
     assert recovered.get_json()["reason"] == "engine restarted before the task reported a final result"
     assert recovered.get_json()["events"][-1]["kind"] == "interrupted"
 

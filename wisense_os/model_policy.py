@@ -62,6 +62,13 @@ class ModelRegistry:
             if role not in profile.roles:
                 raise ModelPolicyError(f"model cannot serve {role}: {profile.name}")
 
+        if request.offline:
+            for profile in (chat, builder):
+                if profile.provider is ProviderKind.CLOUD:
+                    raise ModelPolicyError(
+                        f"offline mode hard-blocks cloud model: {profile.name}"
+                    )
+
         if request.mode is RunMode.LOCAL_AUTOPILOT:
             if builder.provider is not ProviderKind.LOCAL:
                 raise ModelPolicyError(

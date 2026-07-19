@@ -34,9 +34,34 @@ if ($IsEngineRunning) {
     }
     
     Start-Process -FilePath $VenvPython -ArgumentList "$RunEngine" -WindowStyle Hidden
-    Start-Sleep -Seconds 2
     Write-Host "[✓] WiSense Engine background process launched." -ForegroundColor Green
 }
+
+function Test-EngineHealth {
+    try {
+        $response = Invoke-WebRequest -Uri "http://127.0.0.1:$EnginePort/api/v1/health" -UseBasicParsing -TimeoutSec 2
+        return $response.StatusCode -eq 200
+    } catch {
+        return $false
+    }
+}
+
+Write-Host "[i] Waiting for Engine health…" -ForegroundColor Yellow
+$deadline = (Get-Date).AddSeconds(30)
+$healthy = $false
+while ((Get-Date) -lt $deadline) {
+    if (Test-EngineHealth) {
+        $healthy = $true
+        break
+    }
+    Start-Sleep -Milliseconds 500
+}
+
+if (-not $healthy) {
+    Write-Host "[!] Engine did not become healthy within 30 seconds." -ForegroundColor Red
+    exit 1
+}
+Write-Host "[✓] Engine health confirmed." -ForegroundColor Green
 
 # Launch Flutter Desktop Client
 $ClientDir = Join-Path $ScriptDir "client"

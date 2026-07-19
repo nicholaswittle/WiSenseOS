@@ -18,6 +18,7 @@ class TaskComposerScreen extends StatefulWidget {
 class _TaskComposerScreenState extends State<TaskComposerScreen> {
   final TextEditingController _textController = TextEditingController();
   final TextEditingController _providerInputController = TextEditingController();
+  final TextEditingController _resolveController = TextEditingController();
   bool _isListening = false;
 
   void _toggleVoiceInput() {
@@ -43,7 +44,68 @@ class _TaskComposerScreenState extends State<TaskComposerScreen> {
     widget.controller.removeListener(_onControllerChanged);
     _textController.dispose();
     _providerInputController.dispose();
+    _resolveController.dispose();
     super.dispose();
+  }
+
+  Future<void> _showRegisterProjectDialog() async {
+    final nameController = TextEditingController();
+    final rootController = TextEditingController();
+    var trusted = false;
+    final registered = await showDialog<bool>(
+      context: context,
+      builder: (context) {
+        return StatefulBuilder(
+          builder: (context, setDialogState) {
+            return AlertDialog(
+              title: const Text('Register Project'),
+              content: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  TextField(
+                    controller: nameController,
+                    decoration: const InputDecoration(
+                      labelText: 'Display name',
+                      border: OutlineInputBorder(),
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  TextField(
+                    controller: rootController,
+                    decoration: const InputDecoration(
+                      labelText: 'Root path',
+                      border: OutlineInputBorder(),
+                    ),
+                  ),
+                  CheckboxListTile(
+                    contentPadding: EdgeInsets.zero,
+                    title: const Text('Trust for Local Autopilot'),
+                    value: trusted,
+                    onChanged: (value) => setDialogState(() => trusted = value ?? false),
+                  ),
+                ],
+              ),
+              actions: [
+                TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancel')),
+                FilledButton(
+                  onPressed: () => Navigator.pop(context, true),
+                  child: const Text('Register'),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+    if (registered == true) {
+      await widget.controller.registerProject(
+        displayName: nameController.text.trim(),
+        root: rootController.text.trim(),
+        localAutopilotTrusted: trusted,
+      );
+    }
+    nameController.dispose();
+    rootController.dispose();
   }
 
   void _onControllerChanged() {
@@ -113,10 +175,23 @@ class _TaskComposerScreenState extends State<TaskComposerScreen> {
             const SizedBox(height: 16),
           ],
 
-          // Project Dropdown
-          Text(
-            'Active Project',
-            style: Theme.of(context).textTheme.titleMedium,
+          // Project Dropdown + nickname resolve + register
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  'Active Project',
+                  style: Theme.of(context).textTheme.titleMedium,
+                ),
+              ),
+              TextButton.icon(
+                onPressed: controller.registering ? null : _showRegisterProjectDialog,
+                icon: controller.registering
+                    ? const SizedBox(width: 14, height: 14, child: CircularProgressIndicator(strokeWidth: 2))
+                    : const Icon(Icons.create_new_folder_outlined, size: 18),
+                label: const Text('Register'),
+              ),
+            ],
           ),
           const SizedBox(height: 6),
           DropdownButtonFormField<EngineProject>(
@@ -135,6 +210,35 @@ class _TaskComposerScreenState extends State<TaskComposerScreen> {
             }).toList(),
             onChanged: controller.submitting ? null : controller.selectProject,
           ),
+          const SizedBox(height: 8),
+          Row(
+            children: [
+              Expanded(
+                child: TextField(
+                  controller: _resolveController,
+                  enabled: !controller.resolving,
+                  decoration: const InputDecoration(
+                    border: OutlineInputBorder(),
+                    hintText: 'Resolve nickname, e.g. the billing project',
+                    contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 14),
+                  ),
+                  onChanged: controller.updateResolvePhrase,
+                ),
+              ),
+              const SizedBox(width: 8),
+              OutlinedButton(
+                onPressed: controller.resolving ? null : controller.resolveNickname,
+                child: Text(controller.resolving ? '…' : 'Resolve'),
+              ),
+            ],
+          ),
+          if (controller.resolveMessage != null) ...[
+            const SizedBox(height: 6),
+            Text(
+              controller.resolveMessage!,
+              style: TextStyle(color: Colors.blueGrey.shade800, fontStyle: FontStyle.italic),
+            ),
+          ],
           const SizedBox(height: 16),
 
           // Request Text Box
@@ -226,7 +330,14 @@ class _TaskComposerScreenState extends State<TaskComposerScreen> {
               ),
             ),
           ],
-          const SizedBox(height: 16),
+          SwitchListTile(
+            contentPadding: EdgeInsets.zero,
+            title: const Text('Offline (local models only)'),
+            subtitle: const Text('Hard-blocks every cloud route, including planning and recovery.'),
+            value: controller.offline,
+            onChanged: controller.submitting ? null : controller.setOffline,
+          ),
+          const SizedBox(height: 8),
 
           // Model Selection Row
           Row(
@@ -336,16 +447,18 @@ class _TaskComposerScreenState extends State<TaskComposerScreen> {
   ) {
     final isBlocked = result.isBlocked;
     final isWaiting = controller.isWaitingForApproval;
+    final isAccepted = controller.isAccepted;
     final isProviderInput = controller.isWaitingForProviderInput;
     final plan = controller.activePlan;
+    final proposal = controller.activeProposal;
     final color = isBlocked
         ? Colors.orange
-        : (isWaiting || isProviderInput ? Colors.blue : Colors.green);
+        : (isWaiting || isProviderInput || isAccepted ? Colors.blue : Colors.green);
 
     return Card(
       color: isBlocked
           ? Colors.orange.shade50
-          : (isWaiting || isProviderInput ? Colors.blue.shade50 : Colors.green.shade50),
+          : (isWaiting || isProviderInput || isAccepted ? Colors.blue.shade50 : Colors.green.shade50),
       shape: RoundedRectangleBorder(
         side: BorderSide(color: color, width: 1.5),
         borderRadius: BorderRadius.circular(8),
@@ -363,7 +476,7 @@ class _TaskComposerScreenState extends State<TaskComposerScreen> {
                     Icon(
                       isBlocked
                           ? Icons.block
-                          : (isWaiting ? Icons.hourglass_top : Icons.check_circle_outline),
+                          : (isWaiting || isAccepted ? Icons.hourglass_top : Icons.check_circle_outline),
                       color: color,
                     ),
                     const SizedBox(width: 8),
@@ -402,7 +515,7 @@ class _TaskComposerScreenState extends State<TaskComposerScreen> {
                 style: TextStyle(color: color.shade900, fontWeight: FontWeight.w600),
               ),
             ],
-            if (isWaiting || isProviderInput) ...[
+            if (controller.canCancelActiveTask) ...[
               const SizedBox(height: 8),
               TextButton.icon(
                 onPressed: controller.canceling ? null : controller.cancelActiveTask,
@@ -411,15 +524,15 @@ class _TaskComposerScreenState extends State<TaskComposerScreen> {
               ),
             ],
 
-            if (isWaiting) ...[
+            if (isAccepted || isWaiting) ...[
               const SizedBox(height: 16),
               if (plan == null)
                 OutlinedButton.icon(
-                  onPressed: controller.draftingPlan ? null : controller.draftActivePlan,
+                  onPressed: controller.canDraftPlan ? controller.draftActivePlan : null,
                   icon: controller.draftingPlan
                       ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2))
                       : const Icon(Icons.fact_check_outlined),
-                  label: Text(controller.draftingPlan ? 'Drafting Evidence Plan...' : 'Draft Evidence Plan Before Handoff'),
+                  label: Text(controller.draftingPlan ? 'Drafting Evidence Plan...' : 'Draft Evidence Plan'),
                 )
               else
                 Container(
@@ -441,13 +554,85 @@ class _TaskComposerScreenState extends State<TaskComposerScreen> {
                       const SizedBox(height: 8),
                       const Text('Acceptance:', style: TextStyle(fontWeight: FontWeight.bold)),
                       ...plan.acceptance.map((item) => Text('- $item')),
+                      if (controller.canPrepareProposal) ...[
+                        const SizedBox(height: 12),
+                        SizedBox(
+                          width: double.infinity,
+                          child: OutlinedButton.icon(
+                            onPressed: controller.proposing ? null : controller.prepareProposal,
+                            icon: controller.proposing
+                                ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2))
+                                : const Icon(Icons.difference_outlined),
+                            label: Text(
+                              controller.proposing
+                                  ? 'Preparing Proposal…'
+                                  : 'Prepare Proposal (model may run; no writes yet)',
+                            ),
+                          ),
+                        ),
+                      ],
                     ],
                   ),
                 ),
             ],
 
-            // Approval Handoff Section
-            if (isWaiting) ...[
+            if (proposal != null) ...[
+              const SizedBox(height: 16),
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: Colors.teal.shade50,
+                  border: Border.all(color: Colors.teal.shade200),
+                  borderRadius: BorderRadius.circular(6),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Write Proposal',
+                      style: TextStyle(fontWeight: FontWeight.bold, color: Colors.teal.shade900),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(proposal.summary),
+                    const SizedBox(height: 4),
+                    SelectableText(
+                      'Digest: ${proposal.digest}',
+                      style: TextStyle(fontFamily: 'monospace', fontSize: 12, color: Colors.teal.shade900),
+                    ),
+                    const SizedBox(height: 8),
+                    const Text('Diffs:', style: TextStyle(fontWeight: FontWeight.bold)),
+                    ...proposal.diffs.entries.map(
+                      (entry) => Padding(
+                        padding: const EdgeInsets.only(top: 8),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(entry.key, style: const TextStyle(fontWeight: FontWeight.w600)),
+                            const SizedBox(height: 4),
+                            Container(
+                              width: double.infinity,
+                              padding: const EdgeInsets.all(8),
+                              color: Colors.black87,
+                              child: SelectableText(
+                                entry.value.isEmpty ? '(no textual diff)' : entry.value,
+                                style: const TextStyle(
+                                  fontFamily: 'monospace',
+                                  fontSize: 11,
+                                  color: Colors.greenAccent,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+
+            // Approval Handoff Section — digest-bound write gate
+            if (isWaiting && proposal != null) ...[
               const SizedBox(height: 16),
               Container(
                 padding: const EdgeInsets.all(12),
@@ -463,7 +648,7 @@ class _TaskComposerScreenState extends State<TaskComposerScreen> {
                         const Icon(Icons.verified_user, color: Colors.blue),
                         const SizedBox(width: 8),
                         Text(
-                          'Explicit Approval Required',
+                          'Digest-Bound Write Approval',
                           style: TextStyle(
                             fontWeight: FontWeight.bold,
                             color: Colors.blue.shade900,
@@ -473,7 +658,7 @@ class _TaskComposerScreenState extends State<TaskComposerScreen> {
                     ),
                     const SizedBox(height: 4),
                     Text(
-                      'Approval is required before the Engine contacts a model or modifies project files.',
+                      'Approval applies the exact proposal digest above. Project files are unchanged until you approve.',
                       style: TextStyle(color: Colors.blue.shade900),
                     ),
                     if (controller.showCloudApprovalWarning) ...[
@@ -486,7 +671,7 @@ class _TaskComposerScreenState extends State<TaskComposerScreen> {
                           border: Border.all(color: Colors.amber.shade600),
                         ),
                         child: Text(
-                          'Cloud Profile Warning: Approving this task will execute requests using the cloud builder profile "${controller.selectedBuilderModel?.name}" (supervised testing).',
+                          'Cloud Profile Warning: Approving will apply a proposal prepared with cloud builder "${controller.selectedBuilderModel?.name}" (supervised testing).',
                           style: TextStyle(
                             color: Colors.amber.shade900,
                             fontWeight: FontWeight.bold,
@@ -511,8 +696,8 @@ class _TaskComposerScreenState extends State<TaskComposerScreen> {
                             : const Icon(Icons.check_circle),
                         label: Text(
                           controller.approving
-                              ? 'Approving Engine Handoff...'
-                              : 'Approve Engine Handoff',
+                              ? 'Approving Write…'
+                              : 'Approve & Apply Proposal',
                         ),
                         style: ElevatedButton.styleFrom(
                           backgroundColor: Colors.blue.shade700,

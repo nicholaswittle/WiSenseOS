@@ -20,6 +20,7 @@ class RunMode(StrEnum):
 
 class TaskStatus(StrEnum):
     ACCEPTED = "accepted"
+    EXPLORING = "exploring"
     BLOCKED = "blocked"
     RUNNING = "running"
     WAITING_FOR_APPROVAL = "waiting_for_approval"
@@ -27,6 +28,7 @@ class TaskStatus(StrEnum):
     CANCELED = "canceled"
     COMPLETED = "completed"
     FAILED = "failed"
+    INTERRUPTED = "interrupted"
 
 
 @dataclass(frozen=True)
@@ -72,6 +74,7 @@ class TaskRequest:
     mode: RunMode
     chat_model: str
     builder_model: str
+    offline: bool = False
 
 
 @dataclass(frozen=True)
@@ -94,6 +97,57 @@ class TaskEvent:
     sequence: int
     kind: str
     detail: str
+
+    def to_json(self) -> dict[str, Any]:
+        return asdict(self)
+
+
+@dataclass(frozen=True)
+class TaskProposal:
+    """Validated write proposal awaiting digest-bound approval."""
+
+    digest: str
+    files: dict[str, str]
+    diffs: dict[str, str]
+    summary: str
+
+    def to_json(self) -> dict[str, Any]:
+        return {
+            "digest": self.digest,
+            "files": dict(self.files),
+            "diffs": dict(self.diffs),
+            "summary": self.summary,
+        }
+
+    @classmethod
+    def from_json(cls, payload: dict[str, Any]) -> "TaskProposal":
+        files = payload.get("files")
+        diffs = payload.get("diffs")
+        digest = payload.get("digest")
+        summary = payload.get("summary")
+        if not isinstance(digest, str) or not digest:
+            raise ValueError("proposal digest is required")
+        if not isinstance(summary, str):
+            raise ValueError("proposal summary is required")
+        if not isinstance(files, dict) or not all(
+            isinstance(k, str) and isinstance(v, str) for k, v in files.items()
+        ):
+            raise ValueError("proposal files must be a string map")
+        if not isinstance(diffs, dict) or not all(
+            isinstance(k, str) and isinstance(v, str) for k, v in diffs.items()
+        ):
+            raise ValueError("proposal diffs must be a string map")
+        return cls(digest=digest, files=dict(files), diffs=dict(diffs), summary=summary)
+
+
+@dataclass(frozen=True)
+class ApprovalRecord:
+    """Digest-bound user confirmation to apply a stored proposal."""
+
+    task_id: str
+    digest: str
+    action: str
+    mode: str
 
     def to_json(self) -> dict[str, Any]:
         return asdict(self)

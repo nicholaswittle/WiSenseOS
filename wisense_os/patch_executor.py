@@ -1,4 +1,4 @@
-"""Native reviewed-plan executor: prompt, exact patch, test, and restore."""
+"""Native reviewed-plan executor: propose (no writes), then apply after approval."""
 
 from __future__ import annotations
 
@@ -9,12 +9,14 @@ import shutil
 import subprocess
 import sys
 from uuid import uuid4
-from typing import Protocol
+from typing import Mapping, Protocol
 
-from .contracts import TaskRequest
+from .contracts import TaskProposal, TaskRequest
 from .model_adapter import ChatModel, ModelAdapterError
-from .patch_protocol import PatchProtocolError, apply_candidate, parse_patch_candidate
+from .patch_protocol import PatchCandidate, PatchProtocolError, apply_candidate, parse_patch_candidate
 from .plan import TaskPlan
+from .patch_limits import PatchSizeError, assert_rewrite_within_ceiling
+from .proposal import diffs_against_workspace, proposal_digest
 from .workspace import WorkspacePlanError, WorkspaceSnapshot, restore_snapshot, snapshot_reviewed_files, validate_plan_files
 
 
@@ -100,6 +102,94 @@ class PlanBoundPatchExecutor:
     # path-limited commit with evidence.
     commit_on_success: bool = False
 
+    def propose(self, request: TaskRequest, plan: TaskPlan) -> dict[str, object]:
+        """Call the builder and return a digest-bound proposal without writing."""
+        root = Path(request.project_root)
+        try:
+            targets = validate_plan_files(root, plan)
+            raw = self.model.complete(
+                _build_messages(request, plan, targets), model=request.builder_model,
+            )
+            candidate = parse_patch_candidate(raw, plan)
+            assert_rewrite_within_ceiling(candidate.files)
+            digest = proposal_digest(candidate.files)
+            diffs = diffs_against_workspace(root, candidate.files)
+            changed = [path for path, text in diffs.items() if text.strip()]
+            summary = (
+                f"Proposal for {len(candidate.files)} reviewed file(s)"
+                f" ({len(changed)} with textual diff)"
+            )
+            proposal = TaskProposal(
+                digest=digest,
+                files=dict(candidate.files),
+                diffs=diffs,
+                summary=summary,
+            )
+            return {"proposal": proposal.to_json(), "digest": digest}
+        except (
+            OSError, ValueError, ModelAdapterError, PatchProtocolError,
+            WorkspacePlanError, PatchSizeError,
+        ) as exc:
+            return {"failed": True, "reason": f"proposal preparation stopped safely: {exc}"}
+
+    def apply_proposal(
+        self,
+        request: TaskRequest,
+        plan: TaskPlan,
+        files: Mapping[str, str],
+    ) -> dict[str, object]:
+        """Apply an already-approved candidate, test, and optionally repair once."""
+        root = Path(request.project_root)
+        try:
+            targets = validate_plan_files(root, plan)
+            if set(files) != set(plan.files):
+                raise WorkspacePlanError("approved proposal does not match reviewed plan files")
+            snapshot = snapshot_reviewed_files(root, plan)
+            apply_candidate(snapshot, PatchCandidate(dict(files)))
+            test_targets = tuple(
+                path for path in plan.files
+                if Path(path).name.startswith("test_") or path.endswith("_test.py")
+            )
+            if not test_targets:
+                raise WorkspacePlanError("reviewed plan needs a named Python test file")
+            passed, detail = self.test_runner.run(root, test_targets)
+            if not passed:
+                restore_snapshot(snapshot)
+                repaired = self._repair_once(request, plan, targets, snapshot, test_targets, detail)
+                if repaired is not None:
+                    return repaired
+                return {
+                    "failed": True,
+                    "reason": f"reviewed test failed after one repair; restored files\n{detail}",
+                    "rolled_back": True,
+                }
+        except (
+            OSError, ValueError, ModelAdapterError, PatchProtocolError,
+            WorkspacePlanError, subprocess.TimeoutExpired,
+        ) as exc:
+            if "snapshot" in locals():
+                restore_snapshot(snapshot)
+            return {
+                "failed": True,
+                "reason": f"native plan-bound execution stopped safely: {exc}",
+                "rolled_back": "snapshot" in locals(),
+            }
+        return self._success(root, plan, test_targets, repaired=False)
+
+    def run(self, request: TaskRequest, plan: TaskPlan) -> dict[str, object]:
+        """Autopilot one-shot: propose then apply without a separate approval gate."""
+        proposed = self.propose(request, plan)
+        if proposed.get("failed") is True or proposed.get("blocked") is True:
+            return proposed
+        proposal_payload = proposed.get("proposal")
+        if not isinstance(proposal_payload, dict):
+            return {"failed": True, "reason": "proposal preparation returned no candidate"}
+        try:
+            proposal = TaskProposal.from_json(proposal_payload)
+        except ValueError as exc:
+            return {"failed": True, "reason": str(exc)}
+        return self.apply_proposal(request, plan, proposal.files)
+
     def _success(
         self, root: Path, plan: TaskPlan, test_targets: tuple[str, ...], *,
         repaired: bool, repair_detail: str | None = None,
@@ -126,30 +216,6 @@ class PlanBoundPatchExecutor:
                 else f"validated, uncommitted ({evidence}): {core}")
         return result
 
-    def run(self, request: TaskRequest, plan: TaskPlan) -> dict[str, object]:
-        root = Path(request.project_root)
-        try:
-            targets = validate_plan_files(root, plan)
-            snapshot = snapshot_reviewed_files(root, plan)
-            raw = self.model.complete(_build_messages(request, plan, targets), model=request.builder_model)
-            candidate = parse_patch_candidate(raw, plan)
-            apply_candidate(snapshot, candidate)
-            test_targets = tuple(path for path in plan.files if Path(path).name.startswith("test_") or path.endswith("_test.py"))
-            if not test_targets:
-                raise WorkspacePlanError("reviewed plan needs a named Python test file")
-            passed, detail = self.test_runner.run(root, test_targets)
-            if not passed:
-                restore_snapshot(snapshot)
-                repaired = self._repair_once(request, plan, targets, snapshot, test_targets, detail)
-                if repaired is not None:
-                    return repaired
-                return {"failed": True, "reason": f"reviewed test failed after one repair; restored files\n{detail}"}
-        except (OSError, ValueError, ModelAdapterError, PatchProtocolError, WorkspacePlanError, subprocess.TimeoutExpired) as exc:
-            if "snapshot" in locals():
-                restore_snapshot(snapshot)
-            return {"failed": True, "reason": f"native plan-bound execution stopped safely: {exc}"}
-        return self._success(root, plan, test_targets, repaired=False)
-
     def _repair_once(
         self,
         request: TaskRequest,
@@ -173,8 +239,46 @@ class PlanBoundPatchExecutor:
             return {
                 "failed": True,
                 "reason": f"reviewed test failed after one repair; restored files\n{repair_detail}",
+                "rolled_back": True,
             }
         return self._success(snapshot.root, plan, test_targets, repaired=True, repair_detail=repair_detail)
+
+    def chat(self, request: TaskRequest) -> dict[str, object]:
+        """Talk-only path: answer with the chat model; never write project files."""
+        try:
+            complete = getattr(self.model, "complete_text", None)
+            if callable(complete):
+                reply = complete(
+                    [
+                        {
+                            "role": "system",
+                            "content": (
+                                "You are WiSense in Talk Only mode. Explain, research, audit, "
+                                "and inspect. Do not propose shell commands that modify files. "
+                                "Do not claim you changed any project files."
+                            ),
+                        },
+                        {
+                            "role": "user",
+                            "content": (
+                                f"Project root: {request.project_root}\n\n"
+                                f"Request: {request.request}"
+                            ),
+                        },
+                    ],
+                    model=request.chat_model,
+                )
+            else:
+                reply = self.model.complete(
+                    [
+                        {"role": "system", "content": "You are WiSense in Talk Only mode."},
+                        {"role": "user", "content": request.request},
+                    ],
+                    model=request.chat_model,
+                )
+        except (OSError, ValueError, ModelAdapterError) as exc:
+            return {"failed": True, "reason": f"talk-only chat stopped safely: {exc}"}
+        return {"reply": reply}
 
     def continue_conversation(self, request: TaskRequest, message: str) -> dict[str, object]:
         return {"blocked": True, "reason": "native patch execution has no conversational continuation"}

@@ -8,7 +8,15 @@ import sqlite3
 from uuid import uuid4
 from pathlib import Path
 
-from .contracts import ProjectRecord, RunMode, TaskEvent, TaskRecord, TaskRequest, TaskStatus
+from .contracts import (
+    ProjectRecord,
+    RunMode,
+    TaskEvent,
+    TaskProposal,
+    TaskRecord,
+    TaskRequest,
+    TaskStatus,
+)
 from .plan import TaskPlan
 
 
@@ -55,6 +63,20 @@ class TaskStore:
                     display_name TEXT NOT NULL,
                     root TEXT NOT NULL UNIQUE,
                     local_autopilot_trusted INTEGER NOT NULL DEFAULT 0
+                )"""
+            )
+            db.execute(
+                """CREATE TABLE IF NOT EXISTS task_proposals (
+                    task_id TEXT PRIMARY KEY,
+                    proposal_json TEXT NOT NULL
+                )"""
+            )
+            db.execute(
+                """CREATE TABLE IF NOT EXISTS task_approvals (
+                    task_id TEXT PRIMARY KEY,
+                    digest TEXT NOT NULL,
+                    action TEXT NOT NULL,
+                    mode TEXT NOT NULL
                 )"""
             )
 
@@ -116,7 +138,7 @@ class TaskStore:
             for task_id in task_ids:
                 db.execute(
                     "UPDATE tasks SET status = ?, reason = ? WHERE task_id = ?",
-                    (TaskStatus.FAILED.value, reason, task_id),
+                    (TaskStatus.INTERRUPTED.value, reason, task_id),
                 )
                 sequence = db.execute(
                     "SELECT COALESCE(MAX(sequence), 0) + 1 FROM task_events WHERE task_id = ?", (task_id,)
@@ -159,6 +181,7 @@ class TaskStore:
         request = TaskRequest(
             request=data["request"], project_root=data["project_root"],
             mode=RunMode(data["mode"]), chat_model=data["chat_model"], builder_model=data["builder_model"],
+            offline=bool(data.get("offline", False)),
         )
         return TaskRecord(task_id=row["task_id"], request=request, status=TaskStatus(row["status"]), reason=row["reason"])
 
@@ -197,3 +220,35 @@ class TaskStore:
         with self._connect() as db:
             row = db.execute("SELECT plan_json FROM task_plans WHERE task_id = ?", (task_id,)).fetchone()
         return json.loads(row["plan_json"]) if row is not None else None
+
+    def save_proposal(self, task_id: str, proposal: TaskProposal) -> None:
+        with self._connect() as db:
+            db.execute(
+                "INSERT OR REPLACE INTO task_proposals(task_id, proposal_json) VALUES (?, ?)",
+                (task_id, json.dumps(proposal.to_json())),
+            )
+
+    def proposal(self, task_id: str) -> TaskProposal | None:
+        with self._connect() as db:
+            row = db.execute(
+                "SELECT proposal_json FROM task_proposals WHERE task_id = ?", (task_id,)
+            ).fetchone()
+        if row is None:
+            return None
+        return TaskProposal.from_json(json.loads(row["proposal_json"]))
+
+    def save_approval(self, task_id: str, *, digest: str, action: str, mode: str) -> None:
+        with self._connect() as db:
+            db.execute(
+                "INSERT OR REPLACE INTO task_approvals(task_id, digest, action, mode) VALUES (?, ?, ?, ?)",
+                (task_id, digest, action, mode),
+            )
+
+    def approval(self, task_id: str) -> dict[str, str] | None:
+        with self._connect() as db:
+            row = db.execute(
+                "SELECT digest, action, mode FROM task_approvals WHERE task_id = ?", (task_id,)
+            ).fetchone()
+        if row is None:
+            return None
+        return {"digest": row["digest"], "action": row["action"], "mode": row["mode"]}

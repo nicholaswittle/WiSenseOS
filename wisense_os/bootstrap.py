@@ -9,9 +9,11 @@ from pathlib import Path
 from flask import Flask
 
 from .api import create_app
+from .budget import BudgetLedger
 from .model_adapter import OllamaChatAdapter
 from .model_policy import ModelRegistry
 from .patch_executor import PlanBoundPatchExecutor, PytestRunner
+from .qualification import QualificationStore, record_offline_baseline
 from .service import TaskCoordinator
 from .store import TaskStore
 
@@ -61,10 +63,19 @@ def create_default_app(
         models = models.with_runtime_availability(runtime_model_names)
     store = TaskStore(resolved_state_dir / "engine_state.db")
     store.mark_interrupted_runs()
+    budget = BudgetLedger(resolved_state_dir / "budget.json")
+    qualification = QualificationStore(resolved_state_dir / "qualification.json")
+    if not qualification.list_results():
+        record_offline_baseline(
+            qualification,
+            configured_models=[(p.name, p.provider.value) for p in models.profiles()],
+        )
     coordinator = TaskCoordinator(
         store=store,
         models=models,
         executor=PlanBoundPatchExecutor(
             model_adapter or OllamaChatAdapter(), PytestRunner(), commit_on_success=True),
+        budget=budget,
+        qualification=qualification,
     )
     return create_app(coordinator, auth_token=auth_token)

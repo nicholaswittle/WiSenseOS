@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 
 import '../../core/engine/engine_models.dart';
@@ -11,6 +13,7 @@ class TaskComposerController extends ChangeNotifier {
   bool _loading = false;
   bool _submitting = false;
   bool _approving = false;
+  bool _proposing = false;
   bool _sendingProviderInput = false;
   bool _draftingPlan = false;
   bool _canceling = false;
@@ -23,14 +26,22 @@ class TaskComposerController extends ChangeNotifier {
   EngineModelProfile? _selectedChatModel;
   EngineModelProfile? _selectedBuilderModel;
   String _selectedMode = 'ask_before_changes';
+  bool _offline = false;
   String _requestText = '';
   String _providerInputText = '';
+  String _resolvePhrase = '';
+  String? _resolveMessage;
+  bool _resolving = false;
+  bool _registering = false;
   EngineTaskStatus? _lastSubmissionResult;
   EngineTaskPlan? _activePlan;
+  EngineTaskProposal? _activeProposal;
+  Timer? _pollTimer;
 
   bool get loading => _loading;
   bool get submitting => _submitting;
   bool get approving => _approving;
+  bool get proposing => _proposing;
   bool get sendingProviderInput => _sendingProviderInput;
   bool get draftingPlan => _draftingPlan;
   bool get canceling => _canceling;
@@ -47,11 +58,18 @@ class TaskComposerController extends ChangeNotifier {
   EngineModelProfile? get selectedChatModel => _selectedChatModel;
   EngineModelProfile? get selectedBuilderModel => _selectedBuilderModel;
   String get selectedMode => _selectedMode;
+  bool get offline => _offline;
   String get requestText => _requestText;
   String get providerInputText => _providerInputText;
+  String get resolvePhrase => _resolvePhrase;
+  String? get resolveMessage => _resolveMessage;
+  bool get resolving => _resolving;
+  bool get registering => _registering;
   EngineTaskStatus? get lastSubmissionResult => _lastSubmissionResult;
   EngineTaskStatus? get activeTaskStatus => _lastSubmissionResult;
   EngineTaskPlan? get activePlan => _activePlan ?? _lastSubmissionResult?.plan;
+  EngineTaskProposal? get activeProposal =>
+      _activeProposal ?? _lastSubmissionResult?.proposal;
 
   bool get isCloudBuilderSelected =>
       _selectedBuilderModel?.isCloud == true ||
@@ -64,14 +82,39 @@ class TaskComposerController extends ChangeNotifier {
       ? 'Local Autopilot is disabled when using a cloud builder model (supervised testing).'
       : null;
 
+  bool get isAccepted => _lastSubmissionResult?.status == 'accepted';
+
+  bool get isExploring => _lastSubmissionResult?.status == 'exploring';
+
   bool get isWaitingForApproval =>
       _lastSubmissionResult?.status == 'waiting_for_approval';
 
   bool get isWaitingForProviderInput =>
       _lastSubmissionResult?.status == 'waiting_for_provider_input';
 
+  bool get isRunning => _lastSubmissionResult?.status == 'running';
+
   bool get showCloudApprovalWarning =>
       isWaitingForApproval && isCloudBuilderSelected;
+
+  bool get canDraftPlan =>
+      (isAccepted || isExploring) &&
+      _selectedMode == 'ask_before_changes' &&
+      !_draftingPlan &&
+      !_proposing;
+
+  bool get canPrepareProposal =>
+      isAccepted &&
+      activePlan != null &&
+      activeProposal == null &&
+      !_proposing;
+
+  bool get canCancelActiveTask =>
+      isAccepted ||
+      isExploring ||
+      isWaitingForApproval ||
+      isWaitingForProviderInput ||
+      isRunning;
 
   bool get isValid =>
       _selectedProject != null &&
@@ -82,7 +125,14 @@ class TaskComposerController extends ChangeNotifier {
       !isWaitingForProviderInput &&
       !_submitting &&
       !_approving &&
-      !_sendingProviderInput;
+      !_sendingProviderInput &&
+      !_proposing;
+
+  @override
+  void dispose() {
+    _pollTimer?.cancel();
+    super.dispose();
+  }
 
   Future<void> load() async {
     _loading = true;
@@ -111,10 +161,16 @@ class TaskComposerController extends ChangeNotifier {
       try {
         final recent = await client.listTasks(limit: 20);
         final pending = recent.where((task) =>
-            task.status == 'waiting_for_approval' || task.status == 'waiting_for_provider_input').firstOrNull;
+            task.status == 'accepted' ||
+            task.status == 'exploring' ||
+            task.status == 'waiting_for_approval' ||
+            task.status == 'waiting_for_provider_input' ||
+            task.status == 'running').firstOrNull;
         if (pending != null) {
           _lastSubmissionResult = await client.getTask(pending.taskId);
           _activePlan = _lastSubmissionResult?.plan;
+          _activeProposal = _lastSubmissionResult?.proposal;
+          _startPollingIfNeeded();
         }
       } catch (_) {
         // The visible Engine health/error state remains the source of truth;
@@ -150,6 +206,11 @@ class TaskComposerController extends ChangeNotifier {
     notifyListeners();
   }
 
+  void setOffline(bool value) {
+    _offline = value;
+    notifyListeners();
+  }
+
   void updateRequestText(String text) {
     _requestText = text;
     notifyListeners();
@@ -160,6 +221,84 @@ class TaskComposerController extends ChangeNotifier {
     notifyListeners();
   }
 
+  void updateResolvePhrase(String text) {
+    _resolvePhrase = text;
+    notifyListeners();
+  }
+
+  Future<void> resolveNickname() async {
+    final phrase = _resolvePhrase.trim();
+    if (phrase.isEmpty) return;
+    _resolving = true;
+    _resolveMessage = null;
+    _error = null;
+    notifyListeners();
+    try {
+      final result = await client.resolveProject(phrase);
+      if (result.matches.isEmpty) {
+        _resolveMessage = 'No registered project matched "$phrase".';
+      } else if (result.decisive) {
+        final match = result.matches.first;
+        EngineProject? found;
+        for (final item in _projects) {
+          if (item.projectId == match.projectId) {
+            found = item;
+            break;
+          }
+        }
+        _selectedProject = found ??
+            EngineProject(
+              projectId: match.projectId,
+              displayName: match.displayName,
+              root: match.root,
+              localAutopilotTrusted: false,
+            );
+        _resolveMessage =
+            'Resolved to ${match.displayName} (score ${match.score.toStringAsFixed(2)}). Confirm before submitting.';
+      } else {
+        _resolveMessage =
+            'Ambiguous: ${result.matches.map((m) => m.displayName).join(', ')}. Pick one from the list.';
+      }
+      _resolving = false;
+      notifyListeners();
+    } catch (e) {
+      _resolving = false;
+      _error = 'Project resolve failed: $e';
+      notifyListeners();
+    }
+  }
+
+  Future<bool> registerProject({
+    required String displayName,
+    required String root,
+    bool localAutopilotTrusted = false,
+  }) async {
+    _registering = true;
+    _error = null;
+    notifyListeners();
+    try {
+      final project = await client.registerProject(
+        displayName: displayName,
+        root: root,
+        localAutopilotTrusted: localAutopilotTrusted,
+      );
+      final existing = _projects.where((item) => item.projectId == project.projectId);
+      if (existing.isEmpty) {
+        _projects = [..._projects, project];
+      }
+      _selectedProject = project;
+      _registering = false;
+      _resolveMessage = 'Registered ${project.displayName}.';
+      notifyListeners();
+      return true;
+    } catch (e) {
+      _registering = false;
+      _error = 'Failed to register project: $e';
+      notifyListeners();
+      return false;
+    }
+  }
+
   Future<EngineTaskStatus?> submitTask() async {
     if (!isValid) return null;
 
@@ -167,6 +306,7 @@ class TaskComposerController extends ChangeNotifier {
     _error = null;
     _lastSubmissionResult = null;
     _activePlan = null;
+    _activeProposal = null;
     notifyListeners();
 
     try {
@@ -176,11 +316,16 @@ class TaskComposerController extends ChangeNotifier {
         mode: _selectedMode,
         chatModel: _selectedChatModel!.name,
         builderModel: _selectedBuilderModel!.name,
+        offline: _offline,
       );
 
       final result = await client.submitTask(submission);
       _lastSubmissionResult = result;
       _submitting = false;
+      _lastAction = result.status == 'accepted'
+          ? 'Task accepted. Draft an evidence plan, then prepare a proposal to review diffs.'
+          : 'Task submitted.';
+      _startPollingIfNeeded();
       notifyListeners();
       return result;
     } catch (e) {
@@ -199,6 +344,8 @@ class TaskComposerController extends ChangeNotifier {
       final updatedStatus = await client.getTask(currentId);
       _lastSubmissionResult = updatedStatus;
       _activePlan = updatedStatus.plan ?? _activePlan;
+      _activeProposal = updatedStatus.proposal ?? _activeProposal;
+      _startPollingIfNeeded();
       notifyListeners();
       return updatedStatus;
     } catch (e) {
@@ -208,24 +355,57 @@ class TaskComposerController extends ChangeNotifier {
     }
   }
 
+  Future<EngineTaskStatus?> prepareProposal() async {
+    final currentId = _lastSubmissionResult?.taskId;
+    if (currentId == null || currentId.isEmpty || !canPrepareProposal) {
+      return null;
+    }
+    _proposing = true;
+    _error = null;
+    _lastAction = 'Contacting the builder to prepare a write proposal (no files will change yet)…';
+    notifyListeners();
+    try {
+      final result = await client.proposeTask(currentId);
+      _lastSubmissionResult = await client.getTask(result.taskId);
+      _activeProposal = _lastSubmissionResult?.proposal;
+      _proposing = false;
+      _lastAction = _activeProposal == null
+          ? 'Proposal preparation did not return a candidate.'
+          : 'Proposal ready. Review the diffs, then approve the digest to apply writes.';
+      _startPollingIfNeeded();
+      notifyListeners();
+      return _lastSubmissionResult;
+    } catch (e) {
+      _proposing = false;
+      _error = 'Failed to prepare proposal: $e';
+      _lastAction = 'Proposal preparation failed.';
+      notifyListeners();
+      return null;
+    }
+  }
+
   Future<EngineTaskStatus?> approveActiveTask() async {
     final currentId = _lastSubmissionResult?.taskId;
-    if (currentId == null || currentId.isEmpty || !isWaitingForApproval) {
+    final digest = activeProposal?.digest;
+    if (currentId == null ||
+        currentId.isEmpty ||
+        !isWaitingForApproval ||
+        digest == null ||
+        digest.isEmpty) {
       return null;
     }
 
     _approving = true;
     _error = null;
-    _lastAction = 'Sending approval request to the local WiSense Engine…';
+    _lastAction = 'Sending digest-bound approval to apply the proposal…';
     notifyListeners();
 
     try {
-      final result = await client.approveTask(currentId);
-      // The approval response only confirms the handoff. The durable task
-      // endpoint owns the complete event timeline, so reload it immediately.
+      final result = await client.approveTask(currentId, digest: digest);
       _lastSubmissionResult = await client.getTask(result.taskId);
       _approving = false;
-      _lastAction = 'Engine accepted the approval request. Refreshing task state…';
+      _lastAction = 'Engine accepted the approval. Applying the approved proposal…';
+      _startPollingIfNeeded();
       notifyListeners();
       return _lastSubmissionResult;
     } catch (e) {
@@ -239,7 +419,7 @@ class TaskComposerController extends ChangeNotifier {
 
   Future<EngineTaskPlan?> draftActivePlan() async {
     final currentId = _lastSubmissionResult?.taskId;
-    if (currentId == null || currentId.isEmpty || !isWaitingForApproval) return null;
+    if (currentId == null || currentId.isEmpty || !canDraftPlan) return null;
     _draftingPlan = true;
     _error = null;
     notifyListeners();
@@ -258,7 +438,7 @@ class TaskComposerController extends ChangeNotifier {
 
   Future<EngineTaskStatus?> cancelActiveTask() async {
     final currentId = _lastSubmissionResult?.taskId;
-    if (currentId == null || currentId.isEmpty || (!isWaitingForApproval && !isWaitingForProviderInput)) {
+    if (currentId == null || currentId.isEmpty || !canCancelActiveTask) {
       return null;
     }
     _canceling = true;
@@ -267,7 +447,9 @@ class TaskComposerController extends ChangeNotifier {
     try {
       _lastSubmissionResult = await client.cancelTask(currentId);
       _activePlan = null;
+      _activeProposal = null;
       _canceling = false;
+      _stopPolling();
       notifyListeners();
       return _lastSubmissionResult;
     } catch (e) {
@@ -291,6 +473,7 @@ class TaskComposerController extends ChangeNotifier {
       _lastSubmissionResult = await client.getTask(accepted.taskId);
       _providerInputText = '';
       _sendingProviderInput = false;
+      _startPollingIfNeeded();
       notifyListeners();
       return _lastSubmissionResult;
     } catch (e) {
@@ -299,5 +482,26 @@ class TaskComposerController extends ChangeNotifier {
       notifyListeners();
       return null;
     }
+  }
+
+  void _startPollingIfNeeded() {
+    final status = _lastSubmissionResult?.status;
+    final active = status == 'accepted' ||
+        status == 'exploring' ||
+        status == 'waiting_for_approval' ||
+        status == 'waiting_for_provider_input' ||
+        status == 'running';
+    if (!active) {
+      _stopPolling();
+      return;
+    }
+    _pollTimer ??= Timer.periodic(const Duration(seconds: 2), (_) {
+      unawaited(refreshTaskStatus());
+    });
+  }
+
+  void _stopPolling() {
+    _pollTimer?.cancel();
+    _pollTimer = null;
   }
 }

@@ -108,15 +108,20 @@ class _CommandViewScreenState extends State<CommandViewScreen> {
                     ),
                     const Divider(height: 24),
 
-                    // VRAM Meter
+                    // VRAM Meter — null means not instrumented (never invent values)
                     Text(
-                      'VRAM Allocation: ${compute.vramUsedMb} MB / ${compute.vramTotalMb} MB',
+                      compute.instrumented && compute.vramUsedMb != null && compute.vramTotalMb != null
+                          ? 'VRAM Allocation: ${compute.vramUsedMb} MB / ${compute.vramTotalMb} MB'
+                          : 'VRAM Allocation: not instrumented',
                       style: const TextStyle(fontWeight: FontWeight.w600),
                     ),
                     const SizedBox(height: 6),
                     LinearProgressIndicator(
-                      value: compute.vramTotalMb > 0
-                          ? (compute.vramUsedMb / compute.vramTotalMb).clamp(0.0, 1.0)
+                      value: (compute.instrumented &&
+                              compute.vramUsedMb != null &&
+                              compute.vramTotalMb != null &&
+                              compute.vramTotalMb! > 0)
+                          ? (compute.vramUsedMb! / compute.vramTotalMb!).clamp(0.0, 1.0)
                           : 0.0,
                       backgroundColor: Colors.grey.shade200,
                       color: Colors.deepPurple,
@@ -132,7 +137,9 @@ class _CommandViewScreenState extends State<CommandViewScreen> {
                             context,
                             icon: Icons.speed,
                             label: 'Generation Speed',
-                            value: '${compute.tokensPerSec.toStringAsFixed(1)} tok/s',
+                            value: compute.tokensPerSec == null
+                                ? 'n/a'
+                                : '${compute.tokensPerSec!.toStringAsFixed(1)} tok/s',
                             color: Colors.teal,
                           ),
                         ),
@@ -159,6 +166,26 @@ class _CommandViewScreenState extends State<CommandViewScreen> {
                       ],
                     ),
                   ],
+                ),
+              ),
+            ),
+            const SizedBox(height: 20),
+          ],
+
+          if (controller.telemetry?.budget != null) ...[
+            Text(
+              'Cloud Budget',
+              style: Theme.of(context).textTheme.titleLarge,
+            ),
+            const SizedBox(height: 8),
+            Card(
+              child: ListTile(
+                leading: const Icon(Icons.account_balance_wallet_outlined),
+                title: Text(
+                  'Exposure \$${controller.telemetry!.budget!.exposureUsd.toStringAsFixed(4)} / cap \$${controller.telemetry!.budget!.capUsd.toStringAsFixed(2)}',
+                ),
+                subtitle: Text(
+                  'Confirmed \$${controller.telemetry!.budget!.confirmedUsd.toStringAsFixed(4)} · Reserved \$${controller.telemetry!.budget!.reservedUsd.toStringAsFixed(4)}',
                 ),
               ),
             ),
@@ -227,21 +254,30 @@ class _CommandViewScreenState extends State<CommandViewScreen> {
     BuildContext context,
     EngineQualificationScore score,
   ) {
-    final isCloud = score.status == 'cloud_specialist';
-    final badgeColor = isCloud ? Colors.blue : Colors.green;
+    final isNa = score.status == 'not_applicable';
+    final isFailed = score.status == 'failed';
+    final badgeColor = isFailed
+        ? Colors.red
+        : (isNa ? Colors.blueGrey : Colors.green);
+    final scoreLabel = score.score == null
+        ? 'No numeric score (${score.status})'
+        : 'Qualification Score: ${score.score!.toStringAsFixed(1)}';
 
     return Card(
       margin: const EdgeInsets.only(bottom: 8.0),
       child: ListTile(
         leading: Icon(
-          isCloud ? Icons.cloud_outlined : Icons.check_circle_outline,
+          isNa ? Icons.cloud_off_outlined : Icons.fact_check_outlined,
           color: badgeColor,
         ),
         title: Text(
           score.name,
           style: const TextStyle(fontWeight: FontWeight.bold),
         ),
-        subtitle: Text('Qualification Score: ${score.score.toStringAsFixed(1)}%'),
+        subtitle: Text(
+          score.detail.isEmpty ? scoreLabel : '$scoreLabel\n${score.detail}',
+        ),
+        isThreeLine: score.detail.isNotEmpty,
         trailing: Container(
           padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
           decoration: BoxDecoration(

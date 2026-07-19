@@ -9,6 +9,8 @@ from pathlib import Path
 from flask import Flask, jsonify, request
 
 from .contracts import RunMode, TaskRequest, TaskStatus
+from .explore import explore_project
+from .model_policy import ModelPolicyError
 from .plan import draft_edit_plan, draft_evidence_plan
 from .project_resolution import resolve_project_reference
 from .service import TaskCoordinator
@@ -43,18 +45,60 @@ def create_app(coordinator: TaskCoordinator, *, auth_token: str | None = None) -
 
     @app.get("/api/v1/telemetry")
     def telemetry():
+        # Honest compute counters. Qualification comes only from stored evidence.
+        active_local = 0
+        active_cloud = 0
+        for task in coordinator.store.list_tasks(limit=50):
+            if task.status != TaskStatus.RUNNING:
+                continue
+            try:
+                builder = coordinator.models.get(task.request.builder_model)
+            except ModelPolicyError:
+                continue
+            if builder.provider.value == "cloud":
+                active_cloud += 1
+            else:
+                active_local += 1
+        qualification = []
+        if coordinator.qualification is not None:
+            qualification = [
+                {
+                    "name": item.model,
+                    "score": item.score,
+                    "status": item.status,
+                    "lane": item.lane,
+                    "detail": item.detail,
+                }
+                for item in coordinator.qualification.list_results()
+            ]
+        budget = None
+        if coordinator.budget is not None:
+            budget = coordinator.budget.snapshot().to_json()
         return jsonify({
             "compute": {
-                "vram_used_mb": 4200,
-                "vram_total_mb": 12288,
-                "tokens_per_sec": 42.5,
-                "active_local_runs": 0,
-                "active_cloud_runs": 0,
+                "vram_used_mb": None,
+                "vram_total_mb": None,
+                "tokens_per_sec": None,
+                "active_local_runs": active_local,
+                "active_cloud_runs": active_cloud,
+                "instrumented": False,
             },
-            "qualification": [
-                {"name": "qwen2.5-coder:7b", "score": 92.5, "status": "qualified"},
-                {"name": "claude-3-7-sonnet", "score": 98.0, "status": "cloud_specialist"},
-            ]
+            "qualification": qualification,
+            "budget": budget,
+        })
+
+    @app.get("/api/v1/budget")
+    def budget():
+        if coordinator.budget is None:
+            return jsonify({"error": "budget ledger is not configured"}), 404
+        return jsonify(coordinator.budget.snapshot().to_json())
+
+    @app.get("/api/v1/qualification")
+    def qualification():
+        if coordinator.qualification is None:
+            return jsonify({"qualification": []})
+        return jsonify({
+            "qualification": [item.to_json() for item in coordinator.qualification.list_results()],
         })
 
     @app.get("/api/v1/models")
@@ -115,6 +159,7 @@ def create_app(coordinator: TaskCoordinator, *, auth_token: str | None = None) -
                 mode=RunMode(data.get("mode", RunMode.ASK_BEFORE_CHANGES.value)),
                 chat_model=str(data.get("chat_model", "")),
                 builder_model=str(data.get("builder_model", "")),
+                offline=data.get("offline") is True,
             )
         except ValueError:
             return jsonify({"error": "unknown run mode"}), 400
@@ -123,14 +168,32 @@ def create_app(coordinator: TaskCoordinator, *, auth_token: str | None = None) -
         record = coordinator.submit(task_request)
         if record.status.value == "blocked":
             return jsonify(record.to_json()), 409
-        if record.status.value == "accepted":
+        # Talk-only can complete without a plan/proposal. Write modes wait.
+        if record.status == TaskStatus.ACCEPTED and record.request.mode == RunMode.TALK_ONLY:
             Thread(target=coordinator.execute, args=(record.task_id,), daemon=True).start()
         return jsonify(record.to_json()), 202
 
+    @app.post("/api/v1/tasks/<task_id>/propose")
+    def propose_task(task_id: str):
+        try:
+            record = coordinator.prepare_proposal(task_id)
+        except KeyError:
+            return jsonify({"error": "task not found"}), 404
+        except ValueError as exc:
+            return jsonify({"error": str(exc)}), 409
+        proposal = coordinator.store.proposal(task_id)
+        payload = record.to_json()
+        if proposal is not None:
+            payload["proposal"] = proposal.to_json()
+        status_code = 200 if record.status == TaskStatus.WAITING_FOR_APPROVAL else 409
+        return jsonify(payload), status_code
+
     @app.post("/api/v1/tasks/<task_id>/approve")
     def approve_task(task_id: str):
+        data = request.get_json(force=True) or {}
+        digest = str(data.get("digest", "")).strip()
         try:
-            record = coordinator.approve(task_id)
+            record = coordinator.approve(task_id, digest=digest)
         except KeyError:
             return jsonify({"error": "task not found"}), 404
         except ValueError as exc:
@@ -172,8 +235,10 @@ def create_app(coordinator: TaskCoordinator, *, auth_token: str | None = None) -
         record = coordinator.store.get(task_id)
         if record is None:
             return jsonify({"error": "task not found"}), 404
-        if record.status != TaskStatus.WAITING_FOR_APPROVAL:
-            return jsonify({"error": "plan drafting is available only before Engine handoff"}), 409
+        if record.status not in {TaskStatus.ACCEPTED, TaskStatus.EXPLORING}:
+            return jsonify({
+                "error": "plan drafting is available only before proposal preparation",
+            }), 409
         project_root = Path(record.request.project_root)
         result = draft_evidence_plan(record.request.request, project_root)
         if not result.ok or result.plan is None:
@@ -184,17 +249,37 @@ def create_app(coordinator: TaskCoordinator, *, auth_token: str | None = None) -
         if not result.ok or result.plan is None:
             return jsonify({"ok": False, "reason": result.reason}), 422
         coordinator.store.save_plan(task_id, result.plan)
-        return jsonify({"ok": True, "task_id": task_id, "plan": result.plan.to_json()})
+        envelope = explore_project(project_root, record.request.request)
+        return jsonify({
+            "ok": True,
+            "task_id": task_id,
+            "plan": result.plan.to_json(),
+            "context": envelope.to_json(),
+        })
 
     @app.get("/api/v1/tasks/<task_id>")
     def task_status(task_id: str):
         record = coordinator.store.get(task_id)
         if record is None:
             return jsonify({"error": "task not found"}), 404
-        return jsonify({
+        proposal = coordinator.store.proposal(task_id)
+        approval = coordinator.store.approval(task_id)
+        payload = {
             **record.to_json(),
             "events": [event.to_json() for event in coordinator.store.events(task_id)],
             "plan": coordinator.store.plan(task_id),
-        })
+        }
+        if proposal is not None:
+            # Omit full file contents from default status to keep payloads small;
+            # diffs + digest are what the approval UI needs.
+            payload["proposal"] = {
+                "digest": proposal.digest,
+                "summary": proposal.summary,
+                "diffs": proposal.diffs,
+                "files": sorted(proposal.files),
+            }
+        if approval is not None:
+            payload["approval"] = approval
+        return jsonify(payload)
 
     return app

@@ -69,16 +69,24 @@ class OllamaChatAdapter:
     base_url: str = "http://127.0.0.1:11434"
     transport: Callable[[Request, float], bytes] | None = None
 
-    def complete(self, messages: list[dict[str, str]], *, model: str, timeout_seconds: float = 120.0) -> str:
-        payload = json.dumps({
+    def complete(
+        self,
+        messages: list[dict[str, str]],
+        *,
+        model: str,
+        timeout_seconds: float = 120.0,
+        structured_patch: bool = True,
+    ) -> str:
+        payload: dict[str, object] = {
             "model": model,
             "messages": redact_messages(messages),
-            "format": _PATCH_RESPONSE_SCHEMA,
             "stream": False,
-        }).encode("utf-8")
+        }
+        if structured_patch:
+            payload["format"] = _PATCH_RESPONSE_SCHEMA
         request = Request(
             f"{self.base_url.rstrip('/')}/api/chat",
-            data=payload,
+            data=json.dumps(payload).encode("utf-8"),
             headers={"Content-Type": "application/json"},
             method="POST",
         )
@@ -91,6 +99,18 @@ class OllamaChatAdapter:
         if not isinstance(content, str) or not content.strip():
             raise ModelAdapterError("Ollama returned no chat content")
         return content
+
+    def complete_text(
+        self,
+        messages: list[dict[str, str]],
+        *,
+        model: str,
+        timeout_seconds: float = 120.0,
+    ) -> str:
+        """Unstructured chat completion for talk-only / explain paths."""
+        return self.complete(
+            messages, model=model, timeout_seconds=timeout_seconds, structured_patch=False,
+        )
 
     def available_models(self, timeout_seconds: float = 2.0) -> set[str]:
         """Return names reported by the loopback Ollama runtime, or none on failure."""

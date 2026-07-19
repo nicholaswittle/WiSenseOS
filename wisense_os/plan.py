@@ -12,6 +12,9 @@ from pathlib import Path
 import re
 from typing import Any, Mapping
 
+from .explore import explore_project
+from .file_finder import resolve_target_file
+
 
 _ENDPOINT = re.compile(r"\b(GET|POST|PUT|PATCH|DELETE)\s+`?(/api/v\d+/[\w/-]+)`?", re.IGNORECASE)
 _PY_FILE = re.compile(r"\b([\w./-]+\.py)\b")
@@ -147,32 +150,51 @@ def _locate_test_for(root: Path, impl_rel: str, named: list[str]) -> str | None:
 
 
 def draft_edit_plan(request: str, project_root: Path) -> PlanDraftResult:
-    """Draft a bounded EDIT plan when the request names exactly one
-    existing non-test Python file whose covering test can be located.
+    """Draft a bounded EDIT plan when exactly one implementation file and
+    its covering test can be located.
 
-    The human reviews the drafted files before approval, so heuristic
-    drafting is safe: this never writes and refuses rather than guessing
-    when the target or its test is ambiguous.
+    Uses the file-finder ladder when the request does not literally name a
+    path. The human still reviews the drafted files before approval.
     """
     root = project_root
     if not root.is_dir():
         return PlanDraftResult(False, "project_root_missing")
     named = _named_existing_py_files(request, root)
     impls = [rel for rel in named if not _is_test_name(rel)]
-    if len(set(impls)) != 1:
+    unique_impls = set(impls)
+    if len(unique_impls) > 1:
         return PlanDraftResult(False, "edit_plan_needs_one_named_existing_file")
-    impl_rel = impls[0]
+    if len(unique_impls) == 1:
+        impl_rel = next(iter(unique_impls))
+    else:
+        # No literal path — use the deterministic resolve ladder (still no writes).
+        resolved = resolve_target_file(root, request)
+        if resolved.status != "resolved" or not resolved.file:
+            if resolved.status == "ambiguous":
+                return PlanDraftResult(
+                    False,
+                    f"edit_plan_ambiguous:{','.join(resolved.candidates[:5])}",
+                )
+            return PlanDraftResult(False, "edit_plan_needs_one_named_existing_file")
+        if _is_test_name(resolved.file) or not resolved.file.endswith(".py"):
+            return PlanDraftResult(False, "edit_plan_needs_one_named_existing_file")
+        impl_rel = resolved.file
     test_rel = _locate_test_for(root, impl_rel, named)
     if test_rel is None:
         return PlanDraftResult(False, "edit_plan_test_not_found")
     if test_rel == impl_rel:
         return PlanDraftResult(False, "edit_plan_needs_a_distinct_test")
+    envelope = explore_project(root, request)
+    summary = f"Apply the requested change to {impl_rel} and verify it with {test_rel}."
+    if envelope.snippets:
+        summary += f" Explorer cited {len(envelope.snippets)} verified snippet(s)."
     plan = TaskPlan(
         title=f"Edit {Path(impl_rel).name}",
-        summary=f"Apply the requested change to {impl_rel} and verify it with {test_rel}.",
+        summary=summary,
         files=(impl_rel, test_rel),
         api_contract=("Preserve the existing public interface unless the request requires a change.",),
         acceptance=(f"{test_rel} passes.", "No unrelated files are modified."),
+        source="explore" if envelope.target else "evidence",
     )
     return PlanDraftResult(True, plan=plan)
 

@@ -148,6 +148,44 @@ void main() {
     expect(status.status, 'canceled');
   });
 
+  test('approveTask posts the proposal digest', () async {
+    late http.BaseRequest captured;
+    final client = WiSenseEngineClient(client: FakeClient((request) async {
+      captured = request;
+      return http.Response(jsonEncode({'task_id': 'task-6', 'status': 'accepted'}), 202);
+    }));
+
+    final status = await client.approveTask('task-6', digest: 'deadbeef');
+
+    expect(captured.method, 'POST');
+    expect(captured.url.path, '/api/v1/tasks/task-6/approve');
+    expect(jsonDecode((captured as http.Request).body)['digest'], 'deadbeef');
+    expect(status.status, 'accepted');
+  });
+
+  test('proposeTask posts to the proposal route', () async {
+    late http.BaseRequest captured;
+    final client = WiSenseEngineClient(client: FakeClient((request) async {
+      captured = request;
+      return http.Response(jsonEncode({
+        'task_id': 'task-7',
+        'status': 'waiting_for_approval',
+        'proposal': {
+          'digest': 'abc',
+          'summary': 'ready',
+          'diffs': {'a.py': '+x'},
+          'files': ['a.py'],
+        },
+      }), 200);
+    }));
+
+    final status = await client.proposeTask('task-7');
+
+    expect(captured.method, 'POST');
+    expect(captured.url.path, '/api/v1/tasks/task-7/propose');
+    expect(status.proposal?.digest, 'abc');
+  });
+
   test('non-success response throws EngineApiException', () async {
     final client = WiSenseEngineClient(client: FakeClient((_) async =>
         http.Response(jsonEncode({'error': 'bad engine'}), 500)));

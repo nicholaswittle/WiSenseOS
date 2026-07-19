@@ -88,6 +88,51 @@ class EngineProject {
       };
 }
 
+class EngineProjectMatch {
+  const EngineProjectMatch({
+    required this.projectId,
+    required this.displayName,
+    required this.root,
+    required this.score,
+  });
+
+  final String projectId;
+  final String displayName;
+  final String root;
+  final double score;
+
+  factory EngineProjectMatch.fromJson(Map<String, dynamic> json) =>
+      EngineProjectMatch(
+        projectId: json['project_id']?.toString() ?? '',
+        displayName: json['display_name']?.toString() ?? '',
+        root: json['root']?.toString() ?? '',
+        score: (json['score'] as num?)?.toDouble() ?? 0,
+      );
+}
+
+class EngineProjectResolveResult {
+  const EngineProjectResolveResult({
+    required this.phrase,
+    required this.decisive,
+    required this.matches,
+  });
+
+  final String phrase;
+  final bool decisive;
+  final List<EngineProjectMatch> matches;
+
+  factory EngineProjectResolveResult.fromJson(Map<String, dynamic> json) =>
+      EngineProjectResolveResult(
+        phrase: json['phrase']?.toString() ?? '',
+        decisive: json['decisive'] == true,
+        matches: ((json['matches'] as List?) ?? const [])
+            .whereType<Map>()
+            .map((item) =>
+                EngineProjectMatch.fromJson(Map<String, dynamic>.from(item)))
+            .toList(growable: false),
+      );
+}
+
 class EngineTaskSubmission {
   const EngineTaskSubmission({
     required this.request,
@@ -95,6 +140,7 @@ class EngineTaskSubmission {
     required this.mode,
     required this.chatModel,
     required this.builderModel,
+    this.offline = false,
   });
 
   final String request;
@@ -102,6 +148,7 @@ class EngineTaskSubmission {
   final String mode;
   final String chatModel;
   final String builderModel;
+  final bool offline;
 
   Map<String, dynamic> toJson() => {
         'request': request,
@@ -109,7 +156,42 @@ class EngineTaskSubmission {
         'mode': mode,
         'chat_model': chatModel,
         'builder_model': builderModel,
+        'offline': offline,
       };
+}
+
+class EngineTaskProposal {
+  const EngineTaskProposal({
+    required this.digest,
+    required this.summary,
+    required this.diffs,
+    required this.files,
+  });
+
+  final String digest;
+  final String summary;
+  final Map<String, String> diffs;
+  final List<String> files;
+
+  factory EngineTaskProposal.fromJson(Map<String, dynamic> json) {
+    final rawDiffs = json['diffs'];
+    final diffs = <String, String>{};
+    if (rawDiffs is Map) {
+      rawDiffs.forEach((key, value) {
+        diffs[key.toString()] = value?.toString() ?? '';
+      });
+    }
+    final rawFiles = json['files'];
+    final files = rawFiles is List
+        ? rawFiles.map((item) => item.toString()).toList(growable: false)
+        : diffs.keys.toList(growable: false);
+    return EngineTaskProposal(
+      digest: json['digest']?.toString() ?? '',
+      summary: json['summary']?.toString() ?? '',
+      diffs: diffs,
+      files: files,
+    );
+  }
 }
 
 class EngineTaskEvent {
@@ -166,6 +248,7 @@ class EngineTaskStatus {
     required this.reason,
     required this.events,
     this.plan,
+    this.proposal,
   });
 
   final String taskId;
@@ -174,6 +257,7 @@ class EngineTaskStatus {
   final String? reason;
   final List<EngineTaskEvent> events;
   final EngineTaskPlan? plan;
+  final EngineTaskProposal? proposal;
 
   bool get isBlocked => statusCode == 409 || status == 'blocked';
 
@@ -196,6 +280,10 @@ class EngineTaskStatus {
       plan: json['plan'] is Map
           ? EngineTaskPlan.fromJson(Map<String, dynamic>.from(json['plan'] as Map))
           : null,
+      proposal: json['proposal'] is Map
+          ? EngineTaskProposal.fromJson(
+              Map<String, dynamic>.from(json['proposal'] as Map))
+          : null,
     );
   }
 }
@@ -207,21 +295,24 @@ class EngineComputeTelemetry {
     required this.tokensPerSec,
     required this.activeLocalRuns,
     required this.activeCloudRuns,
+    required this.instrumented,
   });
 
-  final int vramUsedMb;
-  final int vramTotalMb;
-  final double tokensPerSec;
+  final int? vramUsedMb;
+  final int? vramTotalMb;
+  final double? tokensPerSec;
   final int activeLocalRuns;
   final int activeCloudRuns;
+  final bool instrumented;
 
   factory EngineComputeTelemetry.fromJson(Map<String, dynamic> json) =>
       EngineComputeTelemetry(
-        vramUsedMb: (json['vram_used_mb'] as num?)?.toInt() ?? 0,
-        vramTotalMb: (json['vram_total_mb'] as num?)?.toInt() ?? 0,
-        tokensPerSec: (json['tokens_per_sec'] as num?)?.toDouble() ?? 0.0,
+        vramUsedMb: (json['vram_used_mb'] as num?)?.toInt(),
+        vramTotalMb: (json['vram_total_mb'] as num?)?.toInt(),
+        tokensPerSec: (json['tokens_per_sec'] as num?)?.toDouble(),
         activeLocalRuns: (json['active_local_runs'] as num?)?.toInt() ?? 0,
         activeCloudRuns: (json['active_cloud_runs'] as num?)?.toInt() ?? 0,
+        instrumented: json['instrumented'] == true,
       );
 }
 
@@ -230,17 +321,42 @@ class EngineQualificationScore {
     required this.name,
     required this.score,
     required this.status,
+    this.detail = '',
   });
 
   final String name;
-  final double score;
+  final double? score;
   final String status;
+  final String detail;
 
   factory EngineQualificationScore.fromJson(Map<String, dynamic> json) =>
       EngineQualificationScore(
         name: json['name']?.toString() ?? '',
-        score: (json['score'] as num?)?.toDouble() ?? 0.0,
-        status: json['status']?.toString() ?? 'unqualified',
+        score: (json['score'] as num?)?.toDouble(),
+        status: json['status']?.toString() ?? 'unevaluated',
+        detail: json['detail']?.toString() ?? '',
+      );
+}
+
+class EngineBudgetSnapshot {
+  const EngineBudgetSnapshot({
+    required this.capUsd,
+    required this.confirmedUsd,
+    required this.reservedUsd,
+    required this.exposureUsd,
+  });
+
+  final double capUsd;
+  final double confirmedUsd;
+  final double reservedUsd;
+  final double exposureUsd;
+
+  factory EngineBudgetSnapshot.fromJson(Map<String, dynamic> json) =>
+      EngineBudgetSnapshot(
+        capUsd: (json['cap_usd'] as num?)?.toDouble() ?? 0,
+        confirmedUsd: (json['confirmed_usd'] as num?)?.toDouble() ?? 0,
+        reservedUsd: (json['reserved_usd'] as num?)?.toDouble() ?? 0,
+        exposureUsd: (json['exposure_usd'] as num?)?.toDouble() ?? 0,
       );
 }
 
@@ -248,10 +364,12 @@ class EngineTelemetryReport {
   const EngineTelemetryReport({
     required this.compute,
     required this.qualification,
+    this.budget,
   });
 
   final EngineComputeTelemetry compute;
   final List<EngineQualificationScore> qualification;
+  final EngineBudgetSnapshot? budget;
 
   factory EngineTelemetryReport.fromJson(Map<String, dynamic> json) {
     final rawCompute = json['compute'] is Map ? json['compute'] as Map<String, dynamic> : <String, dynamic>{};
@@ -262,6 +380,10 @@ class EngineTelemetryReport {
           .whereType<Map>()
           .map((item) => EngineQualificationScore.fromJson(Map<String, dynamic>.from(item)))
           .toList(growable: false),
+      budget: json['budget'] is Map
+          ? EngineBudgetSnapshot.fromJson(
+              Map<String, dynamic>.from(json['budget'] as Map))
+          : null,
     );
   }
 }

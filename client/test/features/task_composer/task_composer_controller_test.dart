@@ -65,6 +65,8 @@ void main() {
             }),
             200,
           );
+        } else if (request.url.path.endsWith('/tasks')) {
+          return http.Response(jsonEncode({'tasks': []}), 200);
         }
         return http.Response('Not Found', 404);
       });
@@ -80,11 +82,12 @@ void main() {
       expect(controller.models.length, equals(2));
       expect(controller.selectedChatModel, isNotNull);
       expect(controller.selectedBuilderModel, isNotNull);
+      controller.dispose();
     });
 
     test('cloud-Autopilot refusal blocks validation in UI controller', () async {
       final fakeClient = FakeHttpClient((request) async {
-        return http.Response(jsonEncode({'projects': [], 'models': []}), 200);
+        return http.Response(jsonEncode({'projects': [], 'models': [], 'tasks': []}), 200);
       });
 
       final engineClient = WiSenseEngineClient(client: fakeClient);
@@ -122,21 +125,22 @@ void main() {
 
       final result = await controller.submitTask();
       expect(result, isNull);
+      controller.dispose();
     });
 
-    test('submitTask() creates valid payload and DOES NOT automatically approve', () async {
+    test('submitTask() creates accepted task and DOES NOT automatically approve', () async {
       final requestedUrls = <String>[];
       final fakeClient = FakeHttpClient((request) async {
         requestedUrls.add(request.url.path);
         return http.Response(
           jsonEncode({
             'task_id': 'task-101',
-            'status': 'waiting_for_approval',
+            'status': 'accepted',
             'events': [
               {
                 'sequence': 1,
-                'kind': 'proposal_ready',
-                'detail': 'Proposal generated and waiting for approval',
+                'kind': 'accepted',
+                'detail': 'task persisted; draft a plan then prepare a proposal before writes',
               }
             ]
           }),
@@ -171,22 +175,19 @@ void main() {
 
       final status = await controller.submitTask();
 
-      // Verify POST /api/v1/tasks was called, but /approve was NOT called automatically
       expect(requestedUrls, contains('/api/v1/tasks'));
       expect(requestedUrls.any((url) => url.contains('/approve')), isFalse);
 
       expect(status, isNotNull);
       expect(status!.taskId, equals('task-101'));
-      expect(status.status, equals('waiting_for_approval'));
-      expect(controller.isWaitingForApproval, isTrue);
-      expect(controller.showCloudApprovalWarning, isFalse);
-      expect(status.events.length, equals(1));
-      expect(status.events.first.sequence, equals(1));
-      expect(status.events.first.kind, equals('proposal_ready'));
-      expect(status.events.first.detail, contains('waiting for approval'));
+      expect(status.status, equals('accepted'));
+      expect(controller.isAccepted, isTrue);
+      expect(controller.isWaitingForApproval, isFalse);
+      expect(status.events.first.kind, equals('accepted'));
+      controller.dispose();
     });
 
-    test('approveActiveTask() sends POST then reloads the durable event timeline', () async {
+    test('approveActiveTask() requires digest and reloads durable timeline', () async {
       late http.BaseRequest approveRequest;
       final fakeClient = FakeHttpClient((request) async {
         if (request.url.path.endsWith('/approve')) {
@@ -208,6 +209,12 @@ void main() {
                 {'sequence': 1, 'kind': 'proposal_ready', 'detail': 'Proposal generated'},
                 {'sequence': 2, 'kind': 'approved', 'detail': 'User approved handoff'},
               ],
+              'proposal': {
+                'digest': 'abc123digest',
+                'summary': 'Proposal for 1 file',
+                'diffs': {'app.py': '+fixed'},
+                'files': ['app.py'],
+              },
             }),
             200,
           );
@@ -216,6 +223,12 @@ void main() {
           jsonEncode({
             'task_id': 'task-101',
             'status': 'waiting_for_approval',
+            'proposal': {
+              'digest': 'abc123digest',
+              'summary': 'Proposal for 1 file',
+              'diffs': {'app.py': '+fixed'},
+              'files': ['app.py'],
+            },
           }),
           202,
         );
@@ -248,17 +261,21 @@ void main() {
 
       await controller.submitTask();
       expect(controller.isWaitingForApproval, isTrue);
+      expect(controller.activeProposal?.digest, equals('abc123digest'));
 
       final approvedStatus = await controller.approveActiveTask();
 
       expect(approveRequest.method, equals('POST'));
       expect(approveRequest.url.path, equals('/api/v1/tasks/task-101/approve'));
+      final body = jsonDecode((approveRequest as http.Request).body) as Map<String, dynamic>;
+      expect(body['digest'], equals('abc123digest'));
 
       expect(approvedStatus, isNotNull);
       expect(approvedStatus!.status, equals('running'));
       expect(controller.isWaitingForApproval, isFalse);
       expect(approvedStatus.events.length, equals(2));
       expect(approvedStatus.events[1].kind, equals('approved'));
+      controller.dispose();
     });
 
     test('cloud warning flag activates when waiting for approval with cloud builder model', () async {
@@ -267,6 +284,12 @@ void main() {
           jsonEncode({
             'task_id': 'task-102',
             'status': 'waiting_for_approval',
+            'proposal': {
+              'digest': 'digest-cloud',
+              'summary': 'cloud proposal',
+              'diffs': {},
+              'files': [],
+            },
           }),
           202,
         );
@@ -302,6 +325,7 @@ void main() {
       expect(controller.isWaitingForApproval, isTrue);
       expect(controller.isCloudBuilderSelected, isTrue);
       expect(controller.showCloudApprovalWarning, isTrue);
+      controller.dispose();
     });
 
     test('provider follow-up requires explicit input and reloads its durable timeline', () async {
@@ -353,6 +377,7 @@ void main() {
       expect(result!.status, 'completed');
       expect(result.events.last.kind, 'completed');
       expect(controller.providerInputText, isEmpty);
+      controller.dispose();
     });
   });
 }

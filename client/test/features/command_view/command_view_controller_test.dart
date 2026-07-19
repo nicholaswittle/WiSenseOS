@@ -24,22 +24,20 @@ class FakeHttpClient extends http.BaseClient {
 
 void main() {
   group('CommandViewController', () {
-    test('refresh() successfully loads hardware compute and qualification metrics', () async {
+    test('refresh() loads honest telemetry without inventing qualification', () async {
       final fakeClient = FakeHttpClient((request) async {
         if (request.url.path.endsWith('/telemetry')) {
           return http.Response(
             jsonEncode({
               'compute': {
-                'vram_used_mb': 4200,
-                'vram_total_mb': 12288,
-                'tokens_per_sec': 42.5,
+                'vram_used_mb': null,
+                'vram_total_mb': null,
+                'tokens_per_sec': null,
                 'active_local_runs': 1,
                 'active_cloud_runs': 0,
+                'instrumented': false,
               },
-              'qualification': [
-                {'name': 'qwen2.5-coder:7b', 'score': 92.5, 'status': 'qualified'},
-                {'name': 'claude-3-7-sonnet', 'score': 98.0, 'status': 'cloud_specialist'}
-              ]
+              'qualification': [],
             }),
             200,
           );
@@ -58,12 +56,12 @@ void main() {
       expect(controller.loading, isFalse);
       expect(controller.error, isNull);
       expect(controller.telemetry, isNotNull);
-      expect(controller.telemetry!.compute.vramUsedMb, equals(4200));
-      expect(controller.telemetry!.compute.vramTotalMb, equals(12288));
-      expect(controller.telemetry!.compute.tokensPerSec, equals(42.5));
-      expect(controller.telemetry!.qualification.length, equals(2));
-      expect(controller.telemetry!.qualification[0].name, equals('qwen2.5-coder:7b'));
-      expect(controller.telemetry!.qualification[0].score, equals(92.5));
+      expect(controller.telemetry!.compute.vramUsedMb, isNull);
+      expect(controller.telemetry!.compute.vramTotalMb, isNull);
+      expect(controller.telemetry!.compute.tokensPerSec, isNull);
+      expect(controller.telemetry!.compute.activeLocalRuns, equals(1));
+      expect(controller.telemetry!.compute.instrumented, isFalse);
+      expect(controller.telemetry!.qualification, isEmpty);
     });
 
     test('refresh() sets error state when telemetry endpoint fails', () async {

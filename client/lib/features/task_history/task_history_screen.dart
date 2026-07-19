@@ -231,7 +231,7 @@ class _TaskHistoryScreenState extends State<TaskHistoryScreen> {
                           controller.draftingPlan ? 'Drafting Plan...' : 'Draft Plan Preview',
                         ),
                       ),
-                    if (task.status != 'completed' && task.status != 'cancelled')
+                    if (task.status != 'completed' && task.status != 'canceled')
                       OutlinedButton.icon(
                         onPressed: controller.cancelling
                             ? null
@@ -401,7 +401,9 @@ class _TaskHistoryScreenState extends State<TaskHistoryScreen> {
     if (status == 'waiting_for_approval') return Colors.blue;
     if (status == 'running' || status == 'accepted') return Colors.teal;
     if (status == 'completed') return Colors.green;
-    if (status == 'cancelled' || status == 'failed') return Colors.grey;
+    if (status == 'canceled' || status == 'failed' || status == 'interrupted') {
+      return Colors.grey;
+    }
     return Colors.deepPurple;
   }
 }

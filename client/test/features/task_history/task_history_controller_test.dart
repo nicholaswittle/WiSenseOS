@@ -118,12 +118,12 @@ void main() {
         if (request.url.path.endsWith('/cancel')) {
           cancelRequest = request;
           return http.Response(
-            jsonEncode({'task_id': 'task-001', 'status': 'cancelled'}),
+            jsonEncode({'task_id': 'task-001', 'status': 'canceled'}),
             200,
           );
         } else if (request.url.path.endsWith('/tasks')) {
           listCallCount++;
-          final status = listCallCount > 1 ? 'cancelled' : 'waiting_for_approval';
+          final status = listCallCount > 1 ? 'canceled' : 'waiting_for_approval';
           return http.Response(
             jsonEncode({
               'tasks': [
@@ -148,8 +148,8 @@ void main() {
       expect(cancelRequest.url.path, equals('/api/v1/tasks/task-001/cancel'));
 
       expect(cancelledStatus, isNotNull);
-      expect(cancelledStatus!.status, equals('cancelled'));
-      expect(controller.selectedTask?.status, equals('cancelled'));
+      expect(cancelledStatus!.status, equals('canceled'));
+      expect(controller.selectedTask?.status, equals('canceled'));
     });
   });
 }

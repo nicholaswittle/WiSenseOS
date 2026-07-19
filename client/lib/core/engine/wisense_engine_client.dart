@@ -105,6 +105,17 @@ class WiSenseEngineClient {
     return EngineProject.fromJson(body);
   }
 
+  Future<EngineProjectResolveResult> resolveProject(String phrase) async {
+    final response = await _client.post(
+      _endpoint('/api/v1/projects/resolve'),
+      headers: await _headers(),
+      body: jsonEncode({'phrase': phrase}),
+    );
+    final body = _body(response);
+    _requireSuccess(response, body, 'Resolve project');
+    return EngineProjectResolveResult.fromJson(body);
+  }
+
   Future<EngineTaskStatus> submitTask(EngineTaskSubmission submission) async {
     final response = await _client.post(
       _endpoint('/api/v1/tasks'),
@@ -142,10 +153,25 @@ class WiSenseEngineClient {
         .toList(growable: false);
   }
 
-  Future<EngineTaskStatus> approveTask(String taskId) async {
+  Future<EngineTaskStatus> proposeTask(String taskId) async {
+    final response = await _client.post(
+      _endpoint('/api/v1/tasks/$taskId/propose'),
+      headers: await _headers(),
+      body: jsonEncode(const <String, Object>{}),
+    );
+    final body = _body(response);
+    if (response.statusCode == 200 || response.statusCode == 409) {
+      return EngineTaskStatus.fromJson(body, statusCode: response.statusCode);
+    }
+    _requireSuccess(response, body, 'Prepare proposal');
+    return EngineTaskStatus.fromJson(body, statusCode: response.statusCode);
+  }
+
+  Future<EngineTaskStatus> approveTask(String taskId, {required String digest}) async {
     final response = await _client.post(
       _endpoint('/api/v1/tasks/$taskId/approve'),
       headers: await _headers(),
+      body: jsonEncode({'digest': digest}),
     );
     final body = _body(response);
     if (response.statusCode == 202) {
@@ -197,7 +223,10 @@ class WiSenseEngineClient {
       _baseUri.resolve(path.startsWith('/') ? path.substring(1) : path);
 
   Future<Map<String, String>> _headers() async {
-    final headers = <String, String>{'Accept': 'application/json'};
+    final headers = <String, String>{
+      'Accept': 'application/json',
+      'Content-Type': 'application/json',
+    };
     final token = await tokenProvider?.call();
     if (token != null && token.isNotEmpty) {
       headers['Authorization'] = 'Bearer $token';
