@@ -67,6 +67,18 @@ class TaskStore:
     def get(self, task_id: str) -> TaskRecord | None:
         with self._connect() as db:
             row = db.execute("SELECT * FROM tasks WHERE task_id = ?", (task_id,)).fetchone()
+        return self._record_from_row(row)
+
+    def list_tasks(self, limit: int = 50) -> list[TaskRecord]:
+        if not 1 <= limit <= 200:
+            raise ValueError("limit must be between 1 and 200")
+        with self._connect() as db:
+            rows = db.execute(
+                "SELECT * FROM tasks ORDER BY rowid DESC LIMIT ?", (limit,)
+            ).fetchall()
+        return [record for row in rows if (record := self._record_from_row(row)) is not None]
+
+    def _record_from_row(self, row: sqlite3.Row | None) -> TaskRecord | None:
         if row is None:
             return None
         data = json.loads(row["request_json"])
@@ -80,4 +92,3 @@ class TaskStore:
         with self._connect() as db:
             rows = db.execute("SELECT * FROM task_events WHERE task_id = ? ORDER BY sequence", (task_id,)).fetchall()
         return [TaskEvent(task_id=row["task_id"], sequence=row["sequence"], kind=row["kind"], detail=row["detail"]) for row in rows]
-

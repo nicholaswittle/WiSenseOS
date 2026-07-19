@@ -21,6 +21,16 @@ def create_app(coordinator: TaskCoordinator) -> Flask:
     def models():
         return jsonify({"models": [profile.to_json() for profile in coordinator.models.profiles()]})
 
+    @app.get("/api/v1/tasks")
+    def task_history():
+        raw_limit = request.args.get("limit", "50")
+        try:
+            limit = int(raw_limit)
+            records = coordinator.store.list_tasks(limit)
+        except ValueError:
+            return jsonify({"error": "limit must be an integer from 1 to 200"}), 400
+        return jsonify({"tasks": [record.to_json() for record in records]})
+
     @app.post("/api/v1/tasks")
     def submit_task():
         data = request.get_json(force=True)

@@ -59,6 +59,34 @@ def test_unknown_mode_is_rejected_before_task_creation(tmp_path: Path) -> None:
     assert response.get_json() == {"error": "unknown run mode"}
 
 
+def test_task_history_is_durable_and_newest_first(tmp_path: Path) -> None:
+    app = create_default_app(tmp_path / "state")
+    client = app.test_client()
+    payload = {
+        "request": "Fix a test", "project_root": r"C:\demo",
+        "mode": "local_autopilot", "chat_model": "glm-5.2:cloud",
+        "builder_model": "gemma4:31b-cloud",
+    }
+    first = client.post("/api/v1/tasks", json=payload).get_json()
+    second = client.post("/api/v1/tasks", json=payload).get_json()
+
+    response = client.get("/api/v1/tasks?limit=2")
+
+    assert response.status_code == 200
+    assert [task["task_id"] for task in response.get_json()["tasks"]] == [
+        second["task_id"], first["task_id"],
+    ]
+
+
+def test_task_history_rejects_invalid_limit(tmp_path: Path) -> None:
+    app = create_default_app(tmp_path / "state")
+
+    response = app.test_client().get("/api/v1/tasks?limit=0")
+
+    assert response.status_code == 400
+    assert response.get_json() == {"error": "limit must be an integer from 1 to 200"}
+
+
 def test_construction_never_invokes_bridge(monkeypatch, tmp_path: Path) -> None:
     def bomb(*_args, **_kwargs):
         raise AssertionError("app construction must not invoke the Work Center bridge")
