@@ -1,4 +1,4 @@
-"""Tests for AIOS framework components: context, router, and skills."""
+"""Tests for advisory AIOS helpers: context, router, and SOP templates."""
 
 from pathlib import Path
 import tempfile
@@ -35,10 +35,10 @@ def test_task_complexity_assessment():
     assert assess_task_complexity("add tests for user login feature") == "medium"
 
 
-def test_recommend_route():
+def test_recommend_route_uses_only_configured_available_profiles():
     profiles = [
         ModelProfile(
-            name="qwen2.5-coder:7b",
+            name="local-coder:7b",
             provider=ProviderKind.LOCAL,
             roles=("chat", "builder"),
             available=True,
@@ -46,9 +46,17 @@ def test_recommend_route():
             future_local_target=False,
         ),
         ModelProfile(
-            name="claude-3-7-sonnet",
+            name="gemma4:31b-cloud",
             provider=ProviderKind.CLOUD,
             roles=("builder",),
+            available=True,
+            supervised_testing_only=True,
+            future_local_target=True,
+        ),
+        ModelProfile(
+            name="glm-5.2:cloud",
+            provider=ProviderKind.CLOUD,
+            roles=("chat", "planner", "builder"),
             available=True,
             supervised_testing_only=True,
             future_local_target=False,
@@ -57,18 +65,28 @@ def test_recommend_route():
 
     rec_low = recommend_route("fix typo in README", profiles)
     assert rec_low.complexity == "low"
-    assert rec_low.builder_model == "qwen2.5-coder:7b"
+    assert rec_low.builder_model == "local-coder:7b"
+    assert rec_low.chat_model == "local-coder:7b"
     assert rec_low.estimated_cost == 0.0
 
     rec_high = recommend_route("architect complete security audit and refactor module", profiles)
     assert rec_high.complexity == "high"
-    assert rec_high.builder_model == "claude-3-7-sonnet"
-    assert rec_high.estimated_cost == 0.15
+    assert rec_high.builder_model == "gemma4:31b-cloud"
+    assert rec_high.estimated_cost == 0.0
 
 
-def test_sop_workflow_list():
+def test_recommend_route_does_not_invent_missing_models():
+    rec = recommend_route("fix anything", [])
+    assert rec.chat_model == ""
+    assert rec.builder_model == ""
+    assert "No available builder" in rec.reason
+
+
+def test_sop_templates_are_ask_before_changes_safe():
     sops = list_builtin_sops()
     assert len(sops) >= 4
     audit_sop = get_sop_by_id("code_audit")
     assert audit_sop is not None
     assert audit_sop.name == "Security & Quality Audit"
+    for sop in sops:
+        assert sop.recommended_mode != "local_autopilot"

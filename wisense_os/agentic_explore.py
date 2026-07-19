@@ -108,9 +108,10 @@ def answer_with_exploration(
     *,
     chat_resp_fn: ChatRespFn,
     max_turns: int = _MAX_TURNS,
-    allow_cloud: bool = True,
 ) -> ExplorationAnswer:
-    if not allow_cloud and is_cloud_model(model):
+    # Cloud is refused: tool loops stream raw repo content. Use deterministic
+    # explore + redacted complete_text for cloud Talk Only instead.
+    if is_cloud_model(model):
         return ExplorationAnswer(ok=False, reason="cloud_model_refused")
 
     messages: list[dict[str, Any]] = [
@@ -186,9 +187,8 @@ def locate_target_with_exploration(
     *,
     chat_resp_fn: ChatRespFn,
     max_turns: int = _MAX_TURNS,
-    allow_cloud: bool = True,
 ) -> LocatedTarget:
-    if not allow_cloud and is_cloud_model(model):
+    if is_cloud_model(model):
         return LocatedTarget(ok=False, problem="cloud_model_refused")
 
     messages: list[dict[str, Any]] = [

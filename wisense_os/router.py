@@ -1,9 +1,13 @@
-"""Multi-Model Multiplexer & Router for WiSense OS AIOS."""
+"""Advisory model routing — recommend only from configured available profiles.
+
+Never invent model names. Cost is not estimated here (budget ledger owns spend).
+"""
 
 from __future__ import annotations
 
 from dataclasses import dataclass
 from typing import Sequence
+
 from .model_policy import ModelProfile
 
 
@@ -40,40 +44,51 @@ def assess_task_complexity(request: str) -> str:
     return "medium"
 
 
-from .contracts import ProviderKind
-
-
 def recommend_route(
     request: str,
     available_profiles: Sequence[ModelProfile],
 ) -> RouteRecommendation:
-    """Recommend optimal chat and builder model pairing strictly from available profiles."""
+    """Recommend chat/builder pairing strictly from available configured profiles."""
     complexity = assess_task_complexity(request)
+    profiles = [p for p in available_profiles if p.available]
 
-    local_chat = next((p for p in available_profiles if p.available and p.provider != ProviderKind.CLOUD and "chat" in p.roles), None)
-    local_builder = next((p for p in available_profiles if p.available and p.provider != ProviderKind.CLOUD and "builder" in p.roles), None)
-    cloud_chat = next((p for p in available_profiles if p.provider == ProviderKind.CLOUD and "chat" in p.roles), None)
-    cloud_builder = next((p for p in available_profiles if p.provider == ProviderKind.CLOUD and "builder" in p.roles), None)
-
-    chat_model = local_chat.name if local_chat else (cloud_chat.name if cloud_chat else "gemma4:31b-cloud")
-    builder_model = (
-        cloud_builder.name if (complexity == "high" and cloud_builder) or not local_builder
-        else local_builder.name
+    local_chat = next(
+        (p for p in profiles if not p.is_cloud and "chat" in p.roles), None,
+    )
+    local_builder = next(
+        (p for p in profiles if not p.is_cloud and "builder" in p.roles), None,
+    )
+    cloud_chat = next(
+        (p for p in profiles if p.is_cloud and "chat" in p.roles), None,
+    )
+    cloud_builder = next(
+        (p for p in profiles if p.is_cloud and "builder" in p.roles), None,
     )
 
-    if builder_model == (cloud_builder.name if cloud_builder else "gemma4:31b-cloud"):
-        return RouteRecommendation(
-            chat_model=chat_model,
-            builder_model=builder_model,
-            complexity=complexity,
-            reason="Cloud Ask Before Changes route selected (supervised testing).",
-            estimated_cost=0.05 if complexity != "high" else 0.15,
+    chat = local_chat or cloud_chat
+    if complexity == "high" and cloud_builder is not None:
+        builder = cloud_builder
+        reason = (
+            "High-complexity task — recommended cloud builder with Ask Before Changes "
+            "(supervised testing). Cost is tracked by the budget ledger, not invented here."
         )
+    elif local_builder is not None:
+        builder = local_builder
+        reason = "Local builder available — preferred for zero cloud spend."
+    elif cloud_builder is not None:
+        builder = cloud_builder
+        reason = (
+            "No local builder configured — cloud builder recommended for Ask Before Changes "
+            "(supervised testing). Cost is tracked by the budget ledger, not invented here."
+        )
+    else:
+        builder = None
+        reason = "No available builder profile is configured."
 
     return RouteRecommendation(
-        chat_model=chat_model,
-        builder_model=builder_model,
+        chat_model=chat.name if chat else "",
+        builder_model=builder.name if builder else "",
         complexity=complexity,
-        reason="Task is suitable for local model execution at zero cloud cost.",
-        estimated_cost=0.00,
+        reason=reason,
+        estimated_cost=0.0,
     )

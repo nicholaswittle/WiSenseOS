@@ -101,10 +101,13 @@ def grep_files(
             with open(file_path, encoding="utf-8", errors="replace") as handle:
                 for line_number, line in enumerate(handle, 1):
                     if regex.search(line):
+                        text = _SECRET_PATTERNS.sub(
+                            "[REDACTED_SECRET]", line.rstrip("\n\r"),
+                        )
                         matches.append({
                             "file": rel_path,
                             "line": line_number,
-                            "text": line.rstrip("\n\r"),
+                            "text": text,
                         })
                         if len(matches) >= max_matches:
                             truncated = True

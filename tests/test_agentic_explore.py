@@ -34,7 +34,6 @@ def test_locate_refuses_cloud_models(tmp_path: Path) -> None:
         tmp_path,
         "gemma4:31b-cloud",
         chat_resp_fn=lambda *a, **k: {"content": "{}"},
-        allow_cloud=False,
     )
     assert result.ok is False
     assert result.problem == "cloud_model_refused"

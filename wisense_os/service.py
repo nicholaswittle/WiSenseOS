@@ -248,8 +248,26 @@ class TaskCoordinator:
             return canceled
 
     def delete_task(self, task_id: str) -> bool:
-        """Purge a task and all associated records under the execution lock."""
+        """Purge a finished task and associated records under the execution lock.
+
+        Active lifecycle states are refused so a running or waiting approval
+        cannot disappear mid-flight.
+        """
+        active = {
+            TaskStatus.ACCEPTED,
+            TaskStatus.EXPLORING,
+            TaskStatus.RUNNING,
+            TaskStatus.WAITING_FOR_APPROVAL,
+            TaskStatus.WAITING_FOR_PROVIDER_INPUT,
+        }
         with self._execution_lock:
+            record = self.store.get(task_id)
+            if record is None:
+                return False
+            if record.status in active:
+                raise ValueError(
+                    f"cannot delete task in active state: {record.status.value}"
+                )
             return self.store.delete_task(task_id)
 
     def execute(self, task_id: str) -> TaskRecord:

@@ -457,7 +457,7 @@ class _TaskHistoryScreenState extends State<TaskHistoryScreen> {
                 ),
                 const SizedBox(width: 8),
                 Text(
-                  isAudit ? '🛡 Code & Security Audit Report' : '💬 Engine Response Output',
+                  isAudit ? 'Engine response (audit-tagged request)' : 'Engine response',
                   style: Theme.of(context).textTheme.titleMedium?.copyWith(
                         fontWeight: FontWeight.bold,
                         color: isAudit ? Colors.red.shade900 : Colors.deepPurple.shade900,

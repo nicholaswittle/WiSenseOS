@@ -128,7 +128,7 @@ class _WiSenseOSAppState extends State<WiSenseOSApp> {
             BottomNavigationBarItem(
               icon: Icon(Icons.auto_awesome_outlined),
               activeIcon: Icon(Icons.auto_awesome),
-              label: 'SOP Workflows',
+              label: 'SOP Templates',
             ),
           ],
         ),

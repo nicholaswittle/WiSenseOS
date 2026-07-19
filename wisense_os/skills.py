@@ -1,4 +1,8 @@
-"""SOP & Skill Workflow Engine for WiSense OS AIOS."""
+"""Prompt-template SOPs for Companion — not an orchestration engine.
+
+Selecting an SOP only fills the request box and suggests a mode. It does not
+bypass Ask Before Changes, digests, budget, or Autopilot policy.
+"""
 
 from __future__ import annotations
 
@@ -31,7 +35,7 @@ BUILTIN_SOPS: List[SOPWorkflow] = [
         id="code_audit",
         name="Security & Quality Audit",
         category="Audit",
-        description="Comprehensive analysis of project codebase for security risks, unhandled exceptions, and dead code.",
+        description="Prompt template for a read-focused audit request (Talk Only or Ask Before Changes).",
         default_request="Perform a security and quality audit across all source files, report issues, and add missing error handlers.",
         recommended_mode="ask_before_changes",
     ),
@@ -39,7 +43,7 @@ BUILTIN_SOPS: List[SOPWorkflow] = [
         id="unit_test_expansion",
         name="Unit Test Suite Boost",
         category="Testing",
-        description="Scans project modules and adds complete unit test coverage for untested classes and functions.",
+        description="Prompt template for expanding unit tests under Ask Before Changes.",
         default_request="Scan project source files and generate comprehensive unit tests to achieve high test coverage.",
         recommended_mode="ask_before_changes",
     ),
@@ -47,7 +51,7 @@ BUILTIN_SOPS: List[SOPWorkflow] = [
         id="refactor_module",
         name="Module Optimization & Cleanup",
         category="Refactoring",
-        description="Refactors oversized functions, cleans up pathing, and standardizes type annotations.",
+        description="Prompt template for a bounded refactor under Ask Before Changes.",
         default_request="Refactor module structure, clean up oversized functions, and enforce strict type annotations.",
         recommended_mode="ask_before_changes",
     ),
@@ -55,16 +59,16 @@ BUILTIN_SOPS: List[SOPWorkflow] = [
         id="doc_generation",
         name="API Documentation Generator",
         category="Documentation",
-        description="Generates clear, production-ready docstrings and updates technical documentation.",
+        description="Prompt template for docstring/README updates. Uses Ask Before Changes (not Autopilot) until a local builder exists.",
         default_request="Generate standard docstrings for all exported functions and update README.md.",
-        recommended_mode="local_autopilot",
+        recommended_mode="ask_before_changes",
     ),
     SOPWorkflow(
         id="karpathy_refactor",
         name="Karpathy Surgical Refactor",
         category="Principles",
-        description="Enforces Andrej Karpathy's 4 rules: surgical diff footprint, no speculative abstractions, and goal-driven test verification.",
-        default_request="Perform a surgical refactor following Karpathy's 4 rules: state assumptions first, use simplest code, limit diffs to target file, and verify tests pass.",
+        description="Prompt template encouraging surgical diffs and test verification — does not enforce rules by itself.",
+        default_request="Perform a surgical refactor: state assumptions first, use simplest code, limit diffs to the target file, and verify tests pass.",
         recommended_mode="ask_before_changes",
     ),
 ]

@@ -187,8 +187,8 @@ class _SOPLibraryScreenState extends State<SOPLibraryScreen> {
               width: double.infinity,
               child: ElevatedButton.icon(
                 onPressed: () => widget.onSelectSOP?.call(sop),
-                icon: const Icon(Icons.play_arrow),
-                label: const Text('Execute SOP Workflow'),
+                icon: const Icon(Icons.edit_note),
+                label: const Text('Use as prompt template'),
                 style: ElevatedButton.styleFrom(
                   backgroundColor: Colors.deepPurple,
                   foregroundColor: Colors.white,
