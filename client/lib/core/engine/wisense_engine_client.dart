@@ -40,6 +40,39 @@ class WiSenseEngineClient {
         .toList(growable: false);
   }
 
+  Future<List<EngineProject>> listProjects() async {
+    final response = await _client.get(
+      _endpoint('/api/v1/projects'),
+      headers: await _headers(),
+    );
+    final body = _body(response);
+    _requireSuccess(response, body, 'List projects');
+    return ((body['projects'] as List?) ?? const [])
+        .whereType<Map>()
+        .map((project) =>
+            EngineProject.fromJson(Map<String, dynamic>.from(project)))
+        .toList(growable: false);
+  }
+
+  Future<EngineProject> registerProject({
+    required String displayName,
+    required String root,
+    bool localAutopilotTrusted = false,
+  }) async {
+    final response = await _client.post(
+      _endpoint('/api/v1/projects'),
+      headers: await _headers(),
+      body: jsonEncode({
+        'display_name': displayName,
+        'root': root,
+        'local_autopilot_trusted': localAutopilotTrusted,
+      }),
+    );
+    final body = _body(response);
+    _requireSuccess(response, body, 'Register project');
+    return EngineProject.fromJson(body);
+  }
+
   Future<EngineTaskStatus> submitTask(EngineTaskSubmission submission) async {
     final response = await _client.post(
       _endpoint('/api/v1/tasks'),
@@ -64,12 +97,15 @@ class WiSenseEngineClient {
     return EngineTaskStatus.fromJson(body, statusCode: response.statusCode);
   }
 
-  Uri _endpoint(String path) => _baseUri.resolve(path.startsWith('/') ? path.substring(1) : path);
+  Uri _endpoint(String path) =>
+      _baseUri.resolve(path.startsWith('/') ? path.substring(1) : path);
 
   Future<Map<String, String>> _headers() async {
     final headers = <String, String>{'Accept': 'application/json'};
     final token = await tokenProvider?.call();
-    if (token != null && token.isNotEmpty) headers['Authorization'] = 'Bearer $token';
+    if (token != null && token.isNotEmpty) {
+      headers['Authorization'] = 'Bearer $token';
+    }
     return headers;
   }
 
@@ -84,7 +120,8 @@ class WiSenseEngineClient {
     );
   }
 
-  void _requireSuccess(http.Response response, Map<String, dynamic> body, String action) {
+  void _requireSuccess(
+      http.Response response, Map<String, dynamic> body, String action) {
     if (response.statusCode >= 200 && response.statusCode < 300) return;
     throw EngineApiException(
       statusCode: response.statusCode,

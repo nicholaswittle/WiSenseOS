@@ -58,6 +58,33 @@ class EngineModelProfile {
       );
 }
 
+class EngineProject {
+  const EngineProject({
+    required this.projectId,
+    required this.displayName,
+    required this.root,
+    required this.localAutopilotTrusted,
+  });
+
+  final String projectId;
+  final String displayName;
+  final String root;
+  final bool localAutopilotTrusted;
+
+  factory EngineProject.fromJson(Map<String, dynamic> json) => EngineProject(
+        projectId: json['project_id']?.toString() ?? json['id']?.toString() ?? '',
+        displayName: json['display_name']?.toString() ?? json['name']?.toString() ?? '',
+        root: json['root']?.toString() ?? json['root_path']?.toString() ?? '',
+        localAutopilotTrusted: json['local_autopilot_trusted'] == true,
+      );
+
+  Map<String, dynamic> toJson() => {
+        'display_name': displayName,
+        'root': root,
+        'local_autopilot_trusted': localAutopilotTrusted,
+      };
+}
+
 class EngineTaskSubmission {
   const EngineTaskSubmission({
     required this.request,
