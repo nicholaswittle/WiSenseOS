@@ -12,7 +12,15 @@ $EnginePort = 5050
 
 function Test-EngineFullHealth {
     try {
-        $response = Invoke-WebRequest -Uri "http://127.0.0.1:$EnginePort/api/v1/telemetry" -UseBasicParsing -TimeoutSec 2
+        $headers = @{}
+        $tokenFile = Join-Path $env:LOCALAPPDATA "WiSenseOS\engine.token"
+        if (Test-Path $tokenFile) {
+            $token = (Get-Content $tokenFile).Trim()
+            if ($token) {
+                $headers["Authorization"] = "Bearer $token"
+            }
+        }
+        $response = Invoke-WebRequest -Uri "http://127.0.0.1:$EnginePort/api/v1/telemetry" -Headers $headers -UseBasicParsing -TimeoutSec 2
         return $response.StatusCode -eq 200
     } catch {
         return $false
