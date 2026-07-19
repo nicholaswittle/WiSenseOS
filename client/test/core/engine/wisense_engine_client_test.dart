@@ -92,6 +92,32 @@ void main() {
     expect(result.events.single.sequence, 1);
   });
 
+  test('draftTaskPlan reads the durable evidence plan contract', () async {
+    late http.BaseRequest captured;
+    final client = WiSenseEngineClient(client: FakeClient((request) async {
+      captured = request;
+      return http.Response(jsonEncode({
+        'ok': true,
+        'task_id': 'task-4',
+        'plan': {
+          'title': 'Add GET /api/v1/version',
+          'summary': 'Extend the existing API and fixture.',
+          'files': ['wisense_os/api.py', 'tests/test_bootstrap.py'],
+          'api_contract': ['GET /api/v1/version returns JSON.'],
+          'acceptance': ['The existing fixture verifies the route.'],
+          'source': 'evidence',
+        },
+      }), 200);
+    }));
+
+    final plan = await client.draftTaskPlan('task-4');
+
+    expect(captured.method, 'POST');
+    expect(captured.url.path, '/api/v1/tasks/task-4/plan-draft');
+    expect(plan.files, ['wisense_os/api.py', 'tests/test_bootstrap.py']);
+    expect(plan.source, 'evidence');
+  });
+
   test('non-success response throws EngineApiException', () async {
     final client = WiSenseEngineClient(client: FakeClient((_) async =>
         http.Response(jsonEncode({'error': 'bad engine'}), 500)));

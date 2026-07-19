@@ -131,6 +131,33 @@ class EngineTaskEvent {
       );
 }
 
+class EngineTaskPlan {
+  const EngineTaskPlan({
+    required this.title,
+    required this.summary,
+    required this.files,
+    required this.apiContract,
+    required this.acceptance,
+    required this.source,
+  });
+
+  final String title;
+  final String summary;
+  final List<String> files;
+  final List<String> apiContract;
+  final List<String> acceptance;
+  final String source;
+
+  factory EngineTaskPlan.fromJson(Map<String, dynamic> json) => EngineTaskPlan(
+        title: json['title']?.toString() ?? '',
+        summary: json['summary']?.toString() ?? '',
+        files: ((json['files'] as List?) ?? const []).map((item) => item.toString()).toList(growable: false),
+        apiContract: ((json['api_contract'] as List?) ?? const []).map((item) => item.toString()).toList(growable: false),
+        acceptance: ((json['acceptance'] as List?) ?? const []).map((item) => item.toString()).toList(growable: false),
+        source: json['source']?.toString() ?? '',
+      );
+}
+
 class EngineTaskStatus {
   const EngineTaskStatus({
     required this.taskId,
@@ -138,6 +165,7 @@ class EngineTaskStatus {
     required this.statusCode,
     required this.reason,
     required this.events,
+    this.plan,
   });
 
   final String taskId;
@@ -145,6 +173,7 @@ class EngineTaskStatus {
   final int statusCode;
   final String? reason;
   final List<EngineTaskEvent> events;
+  final EngineTaskPlan? plan;
 
   bool get isBlocked => statusCode == 409 || status == 'blocked';
 
@@ -164,6 +193,9 @@ class EngineTaskStatus {
           .map((event) => EngineTaskEvent.fromJson(
               Map<String, dynamic>.from(event)))
           .toList(growable: false),
+      plan: json['plan'] is Map
+          ? EngineTaskPlan.fromJson(Map<String, dynamic>.from(json['plan'] as Map))
+          : null,
     );
   }
 }

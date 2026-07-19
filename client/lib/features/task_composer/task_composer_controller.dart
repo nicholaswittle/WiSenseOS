@@ -12,6 +12,7 @@ class TaskComposerController extends ChangeNotifier {
   bool _submitting = false;
   bool _approving = false;
   bool _sendingProviderInput = false;
+  bool _draftingPlan = false;
   String? _error;
   List<EngineProject> _projects = const [];
   List<EngineModelProfile> _models = const [];
@@ -23,11 +24,13 @@ class TaskComposerController extends ChangeNotifier {
   String _requestText = '';
   String _providerInputText = '';
   EngineTaskStatus? _lastSubmissionResult;
+  EngineTaskPlan? _activePlan;
 
   bool get loading => _loading;
   bool get submitting => _submitting;
   bool get approving => _approving;
   bool get sendingProviderInput => _sendingProviderInput;
+  bool get draftingPlan => _draftingPlan;
   String? get error => _error;
   List<EngineProject> get projects => _projects;
   List<EngineModelProfile> get models => _models;
@@ -44,6 +47,7 @@ class TaskComposerController extends ChangeNotifier {
   String get providerInputText => _providerInputText;
   EngineTaskStatus? get lastSubmissionResult => _lastSubmissionResult;
   EngineTaskStatus? get activeTaskStatus => _lastSubmissionResult;
+  EngineTaskPlan? get activePlan => _activePlan ?? _lastSubmissionResult?.plan;
 
   bool get isCloudBuilderSelected =>
       _selectedBuilderModel?.isCloud == true ||
@@ -142,6 +146,7 @@ class TaskComposerController extends ChangeNotifier {
     _submitting = true;
     _error = null;
     _lastSubmissionResult = null;
+    _activePlan = null;
     notifyListeners();
 
     try {
@@ -173,6 +178,7 @@ class TaskComposerController extends ChangeNotifier {
     try {
       final updatedStatus = await client.getTask(currentId);
       _lastSubmissionResult = updatedStatus;
+      _activePlan = updatedStatus.plan ?? _activePlan;
       notifyListeners();
       return updatedStatus;
     } catch (e) {
@@ -203,6 +209,25 @@ class TaskComposerController extends ChangeNotifier {
     } catch (e) {
       _approving = false;
       _error = 'Task approval failed: $e';
+      notifyListeners();
+      return null;
+    }
+  }
+
+  Future<EngineTaskPlan?> draftActivePlan() async {
+    final currentId = _lastSubmissionResult?.taskId;
+    if (currentId == null || currentId.isEmpty || !isWaitingForApproval) return null;
+    _draftingPlan = true;
+    _error = null;
+    notifyListeners();
+    try {
+      _activePlan = await client.draftTaskPlan(currentId);
+      _draftingPlan = false;
+      notifyListeners();
+      return _activePlan;
+    } catch (e) {
+      _draftingPlan = false;
+      _error = 'Failed to draft evidence plan: $e';
       notifyListeners();
       return null;
     }

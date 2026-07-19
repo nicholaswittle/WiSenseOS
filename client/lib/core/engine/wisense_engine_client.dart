@@ -124,6 +124,20 @@ class WiSenseEngineClient {
     return EngineTaskStatus.fromJson(body, statusCode: response.statusCode);
   }
 
+  Future<EngineTaskPlan> draftTaskPlan(String taskId) async {
+    final response = await _client.post(
+      _endpoint('/api/v1/tasks/$taskId/plan-draft'),
+      headers: await _headers(),
+    );
+    final body = _body(response);
+    _requireSuccess(response, body, 'Draft task plan');
+    final plan = body['plan'];
+    if (body['ok'] != true || plan is! Map) {
+      throw EngineApiException(statusCode: response.statusCode, message: 'Engine did not return a task plan', body: body);
+    }
+    return EngineTaskPlan.fromJson(Map<String, dynamic>.from(plan));
+  }
+
   Uri _endpoint(String path) =>
       _baseUri.resolve(path.startsWith('/') ? path.substring(1) : path);
 

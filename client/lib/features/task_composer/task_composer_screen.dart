@@ -298,6 +298,7 @@ class _TaskComposerScreenState extends State<TaskComposerScreen> {
     final isBlocked = result.isBlocked;
     final isWaiting = controller.isWaitingForApproval;
     final isProviderInput = controller.isWaitingForProviderInput;
+    final plan = controller.activePlan;
     final color = isBlocked
         ? Colors.orange
         : (isWaiting || isProviderInput ? Colors.blue : Colors.green);
@@ -354,6 +355,41 @@ class _TaskComposerScreenState extends State<TaskComposerScreen> {
                 'Reason: ${result.reason}',
                 style: TextStyle(color: color.shade900, fontWeight: FontWeight.w600),
               ),
+            ],
+
+            if (isWaiting) ...[
+              const SizedBox(height: 16),
+              if (plan == null)
+                OutlinedButton.icon(
+                  onPressed: controller.draftingPlan ? null : controller.draftActivePlan,
+                  icon: controller.draftingPlan
+                      ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2))
+                      : const Icon(Icons.fact_check_outlined),
+                  label: Text(controller.draftingPlan ? 'Drafting Evidence Plan...' : 'Draft Evidence Plan Before Handoff'),
+                )
+              else
+                Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: Colors.indigo.shade50,
+                    border: Border.all(color: Colors.indigo.shade200),
+                    borderRadius: BorderRadius.circular(6),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(plan.title, style: TextStyle(fontWeight: FontWeight.bold, color: Colors.indigo.shade900)),
+                      const SizedBox(height: 4),
+                      Text(plan.summary),
+                      const SizedBox(height: 8),
+                      const Text('Evidence-backed files:', style: TextStyle(fontWeight: FontWeight.bold)),
+                      ...plan.files.map((file) => Text(file)),
+                      const SizedBox(height: 8),
+                      const Text('Acceptance:', style: TextStyle(fontWeight: FontWeight.bold)),
+                      ...plan.acceptance.map((item) => Text('- $item')),
+                    ],
+                  ),
+                ),
             ],
 
             // Approval Handoff Section
