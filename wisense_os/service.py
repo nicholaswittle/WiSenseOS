@@ -5,14 +5,14 @@ from __future__ import annotations
 from threading import Lock
 from uuid import uuid4
 
-from .bridge import WorkCenterBridge
 from .contracts import RunMode, TaskRecord, TaskRequest, TaskStatus
+from .executor import TaskExecutor
 from .model_policy import ModelPolicyError, ModelRegistry
 from .store import TaskStore
 
 
 def _provider_needs_input(reply: str) -> bool:
-    """Conservative bridge adapter until Work Center exposes typed pending state.
+    """Conservative adapter until the native executor exposes typed pending state.
 
     A false positive merely asks the user to continue; a false negative could
     mislabel an approval or clarification as completed, so the recognizer is
@@ -29,13 +29,12 @@ def _provider_needs_input(reply: str) -> bool:
 
 
 class TaskCoordinator:
-    def __init__(self, store: TaskStore, models: ModelRegistry, bridge: WorkCenterBridge) -> None:
+    def __init__(self, store: TaskStore, models: ModelRegistry, executor: TaskExecutor) -> None:
         self.store = store
         self.models = models
-        self.bridge = bridge
-        # The current Work Center API owns one active project/model state.  Until
-        # it exposes isolated per-task state, serializing bridge execution keeps
-        # one task from changing another task's selected root or model.
+        self.executor = executor
+        # Every future WiSense executor runs under this lock until per-project
+        # isolation is proven. No external app state is involved.
         self._execution_lock = Lock()
 
     def submit(self, request: TaskRequest) -> TaskRecord:
@@ -71,6 +70,8 @@ class TaskCoordinator:
                 raise KeyError(f"unknown task: {task_id}")
             if record.status != TaskStatus.WAITING_FOR_APPROVAL:
                 raise ValueError(f"task is not awaiting approval: {record.status.value}")
+            if self.store.plan(task_id) is None:
+                raise ValueError("task needs a reviewed plan before Engine handoff")
             active_provider_turn = self.store.provider_input_waiting_task(exclude_task_id=task_id)
             if active_provider_turn is not None:
                 raise ValueError(
@@ -116,14 +117,14 @@ class TaskCoordinator:
                 self.store.append_event(task_id, "completed", "talk-only policy prevented a builder call")
                 return self.store.get(task_id)  # type: ignore[return-value]
             self.store.update_status(task_id, TaskStatus.RUNNING)
-            self.store.append_event(task_id, "delegating", "delegating to Local Agent Work Center canonical API")
+            self.store.append_event(task_id, "executing", "delegating to the native WiSense executor")
             try:
-                result = self.bridge.run(record.request)
+                result = self.executor.run(record.request)
             except Exception as exc:
-                self.store.update_status(task_id, TaskStatus.FAILED, f"engine bridge failed: {exc}")
-                self.store.append_event(task_id, "failed", "engine bridge failed before a result was recorded")
+                self.store.update_status(task_id, TaskStatus.FAILED, f"native executor failed: {exc}")
+                self.store.append_event(task_id, "failed", "native executor failed before a result was recorded")
             else:
-                self._record_bridge_result(task_id, result)
+                self._record_executor_result(task_id, result)
             return self.store.get(task_id)  # type: ignore[return-value]
 
     def continue_with_provider_input(self, task_id: str, message: str) -> TaskRecord:
@@ -140,15 +141,20 @@ class TaskCoordinator:
             self.store.update_status(task_id, TaskStatus.RUNNING)
             self.store.append_event(task_id, "provider_input_submitted", "user sent an explicit response to Work Center")
             try:
-                result = self.bridge.continue_conversation(record.request, clean_message)
+                result = self.executor.continue_conversation(record.request, clean_message)
             except Exception as exc:
-                self.store.update_status(task_id, TaskStatus.FAILED, f"engine bridge failed: {exc}")
-                self.store.append_event(task_id, "failed", "engine bridge failed before a follow-up result was recorded")
+                self.store.update_status(task_id, TaskStatus.FAILED, f"native executor failed: {exc}")
+                self.store.append_event(task_id, "failed", "native executor failed before a follow-up result was recorded")
             else:
-                self._record_bridge_result(task_id, result)
+                self._record_executor_result(task_id, result)
             return self.store.get(task_id)  # type: ignore[return-value]
 
-    def _record_bridge_result(self, task_id: str, result: dict[str, object]) -> None:
+    def _record_executor_result(self, task_id: str, result: dict[str, object]) -> None:
+        if result.get("blocked") is True:
+            reason = str(result.get("reason", "native execution is unavailable"))
+            self.store.update_status(task_id, TaskStatus.BLOCKED, reason)
+            self.store.append_event(task_id, "blocked", reason)
+            return
         reply = str(result.get("reply", "engine returned no reply"))
         if _provider_needs_input(reply):
             self.store.update_status(task_id, TaskStatus.WAITING_FOR_PROVIDER_INPUT, reply)

@@ -47,12 +47,12 @@ Cloud assistance is a separate, explicit choice. It always goes through secret r
 
 | Source project | Role in WiSense OS | Reuse | Do not carry forward as authority |
 |---|---|---|---|
-| `local-agent-work-center` | **WiSense Engine** | Model routing, validator, path containment, redaction, budget ledger, snapshots, test runner, model qualification, CLI task flow | Its current web UI as the long-term primary client |
-| `my_ai` | **WiSense OS desktop shell** | Conversation UI, voice capture/playback, routing, workbench visuals, agent/task presentation | Direct provider calls and `.tasks` folder-based dispatch |
-| `command_center` | **Command View design source** | Project health, history, live status, model metrics, useful operations cards | Supabase as execution authority; unrelated business/game/ticket features |
+| `local-agent-work-center` | Reference/migration source | Port audited routing, validators, containment, redaction, snapshots, test runner, and qualification concepts into WiSense | Any runtime API, process, port, state, or configuration authority |
+| `my_ai` | Reference/migration source | Port selected conversation, voice, and workbench UX after adaptation | Direct provider calls, `.tasks` dispatch, or runtime dependency |
+| `command_center` | Reference/migration source | Port selected project health, history, status, and metrics concepts | Supabase execution authority and unrelated product features |
 | `packages/wisense_core`, `packages/wisense_ui` | Shared Flutter foundations | Existing common models and UI utilities after audit | Duplicated task protocol models |
 
-Existing projects stay intact during migration. WiSense OS will integrate them incrementally; it is not a destructive merge.
+Existing projects stay intact and read-only during migration. WiSense OS ports selected behavior and tests into its own repository; it never calls, imports from, or launches an old project at runtime. After WiSense passes standalone migration checks, the old projects can be archived and deleted.
 
 ## 4. Target architecture
 
@@ -64,7 +64,7 @@ WiSense OS desktop app (Flutter)
                          │
                          │ loopback authenticated task API
                          ▼
-WiSense Engine (Python; evolved from Local Agent Work Center)
+WiSense Engine (Python; native WiSense codebase)
   ├─ Task coordinator and persisted task state
   ├─ Model policy: Ollama local / budgeted cloud adapters
   ├─ Read-only exploration and project nickname resolution
@@ -151,32 +151,32 @@ The coordinator owns the project lock, mode, approval, budgets, validation, and 
 
 ## 8. Delivery phases
 
-### Phase 0 — Stabilize the existing engine
+### Phase 0 — Standalone engine extraction
 
-**Goal:** make the current Work Center trustworthy as the one execution core.
+**Goal:** make WiSense Engine self-contained before any normal task depends on it.
 
 - Resolve known review findings before migration:
   - model-located write targets need visible confirmation unless Local Autopilot is explicitly selected;
   - qualification output must distinguish expected/not-applicable baseline checks from failures.
-- Confirm one canonical direct-task route in the existing API; do not create duplicate dispatch behavior.
+- Remove every legacy runtime bridge, import, port dependency, and global conversation dependency.
 - Make model availability truthful: surface only models actually reachable in the current runtime, distinguish local from cloud accurately, and fail closed when Offline/Local mode has no qualified builder.
-- Exercise live local edit, create, test-failure, repair, cancellation, and restart cases.
-- Write a migration compatibility test suite around the canonical route.
+- Exercise native local edit, create, test-failure, repair, cancellation, and restart cases.
+- Write standalone migration tests that prove WiSense works when legacy project paths are unavailable.
 
-**Exit criteria:** a local task can be submitted through the current API and produces a structured, truthful result without the folder watcher.
+**Exit criteria:** a local task is executed by WiSense alone and produces a structured, truthful result with no old project running.
 
-### Phase 1 — Thin `my_ai` to Engine bridge
+### Phase 1 — Native Flutter to WiSense Engine
 
-**Goal:** prove the desired single-app workflow before redesigning anything.
+**Goal:** prove the desired one-app workflow with no legacy runtime component.
 
-- Create `EngineClient` in `my_ai` for engine health, project choice, submit, approval/cancel, status, and history.
-- Connect the existing chat input to the canonical engine route.
+- Create and maintain `EngineClient` in the WiSense client for engine health, project choice, submit, approval/cancel, status, and history.
+- Connect the WiSense chat input to the native engine route.
 - Render task status and final evidence in the existing conversation view.
 - Display the chosen provider, model, local/cloud status, and budget state for every run; do not hard-code a presumed Gemma model.
-- Keep the folder watcher available only as a temporary legacy fallback; do not use it for the new path.
+- Do not keep a folder watcher or legacy fallback in the WiSense runtime path.
 - Store no paid-provider keys in the new client flow.
 
-**Exit criteria:** one Flutter window can submit a plain-English local task and display its completed test/commit evidence.
+**Exit criteria:** one Flutter window can submit a plain-English task and display native WiSense test/commit evidence.
 
 ### Phase 2 — Durable task history and authenticated local API
 

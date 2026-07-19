@@ -3,7 +3,6 @@ from __future__ import annotations
 from pathlib import Path
 
 from wisense_os.bootstrap import create_default_app
-from wisense_os.bridge import HttpWorkCenterBridge
 
 
 def test_supplied_state_directory_creates_sqlite_state(tmp_path: Path) -> None:
@@ -115,11 +114,7 @@ def test_project_registry_rejects_missing_folder(tmp_path: Path) -> None:
     assert response.get_json() == {"error": "root must be an existing directory"}
 
 
-def test_ask_before_changes_waits_for_api_approval_before_execution(monkeypatch, tmp_path: Path) -> None:
-    def no_network(*_args, **_kwargs):
-        raise RuntimeError("test bridge must not contact Local Agent Work Center")
-
-    monkeypatch.setattr(HttpWorkCenterBridge, "run", no_network)
+def test_ask_before_changes_requires_a_reviewed_plan_before_api_approval(tmp_path: Path) -> None:
     app = create_default_app(tmp_path / "state")
     client = app.test_client()
     root = tmp_path / "project"
@@ -136,8 +131,8 @@ def test_ask_before_changes_waits_for_api_approval_before_execution(monkeypatch,
 
     assert waiting.status_code == 202
     assert waiting.get_json()["status"] == "waiting_for_approval"
-    assert approved.status_code == 202
-    assert approved.get_json()["status"] == "accepted"
+    assert approved.status_code == 409
+    assert approved.get_json()["error"] == "task needs a reviewed plan before Engine handoff"
 
 
 def test_waiting_task_can_persist_an_evidence_backed_plan_before_handoff(tmp_path: Path) -> None:
@@ -165,12 +160,7 @@ def test_waiting_task_can_persist_an_evidence_backed_plan_before_handoff(tmp_pat
     assert saved["plan"] == response.get_json()["plan"]
 
 
-def test_construction_never_invokes_bridge(monkeypatch, tmp_path: Path) -> None:
-    def bomb(*_args, **_kwargs):
-        raise AssertionError("app construction must not invoke the Work Center bridge")
-
-    monkeypatch.setattr(HttpWorkCenterBridge, "run", bomb)
-
+def test_construction_never_invokes_an_executor(tmp_path: Path) -> None:
     create_default_app(tmp_path / "state")
 
 

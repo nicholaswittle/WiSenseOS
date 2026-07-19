@@ -8,7 +8,7 @@ from pathlib import Path
 from flask import Flask
 
 from .api import create_app
-from .bridge import HttpWorkCenterBridge
+from .executor import NativeTaskExecutor
 from .model_policy import ModelRegistry
 from .service import TaskCoordinator
 from .store import TaskStore
@@ -27,14 +27,13 @@ def _default_state_dir() -> Path:
 def create_default_app(state_dir: Path | None = None) -> Flask:
     """Build the local API using durable state, without touching a model.
 
-    The bridge only describes how a later task reaches Local Agent Work Center;
-    it performs no HTTP work until the coordinator executes an accepted task.
+    The native executor performs no provider or filesystem work at startup.
     """
     resolved_state_dir = state_dir or _default_state_dir()
     models = ModelRegistry.from_file(PROJECT_ROOT / "config" / "model_profiles.json")
     coordinator = TaskCoordinator(
         store=TaskStore(resolved_state_dir / "engine_state.db"),
         models=models,
-        bridge=HttpWorkCenterBridge(),
+        executor=NativeTaskExecutor(),
     )
     return create_app(coordinator)

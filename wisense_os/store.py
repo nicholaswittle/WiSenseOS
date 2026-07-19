@@ -155,7 +155,7 @@ class TaskStore:
         return [TaskEvent(task_id=row["task_id"], sequence=row["sequence"], kind=row["kind"], detail=row["detail"]) for row in rows]
 
     def provider_input_waiting_task(self, *, exclude_task_id: str = "") -> TaskRecord | None:
-        """Return the one bridge conversation that must be resumed first."""
+        """Return the one executor conversation that must be resumed first."""
         with self._connect() as db:
             row = db.execute(
                 """SELECT * FROM tasks WHERE status = ? AND task_id != ?
