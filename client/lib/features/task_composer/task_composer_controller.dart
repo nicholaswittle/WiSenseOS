@@ -18,6 +18,8 @@ class TaskComposerController extends ChangeNotifier {
   bool _draftingPlan = false;
   bool _canceling = false;
   String? _error;
+  String? _planDraftHint;
+  List<String> _planDraftCandidates = const [];
   String? _lastAction;
   List<EngineProject> _projects = const [];
   List<EngineModelProfile> _models = const [];
@@ -46,6 +48,8 @@ class TaskComposerController extends ChangeNotifier {
   bool get draftingPlan => _draftingPlan;
   bool get canceling => _canceling;
   String? get error => _error;
+  String? get planDraftHint => _planDraftHint;
+  List<String> get planDraftCandidates => _planDraftCandidates;
   String? get lastAction => _lastAction;
   List<EngineProject> get projects => _projects;
   List<EngineModelProfile> get models => _models;
@@ -108,8 +112,13 @@ class TaskComposerController extends ChangeNotifier {
   bool get isWaitingForApproval =>
       _lastSubmissionResult?.status == 'waiting_for_approval';
 
+  /// Native PlanBoundPatchExecutor does not drive provider-input turns.
+  /// Keep the getter for status display only — Companion does not solicit
+  /// freeform "go ahead" replies as a write gate (digest approval does).
   bool get isWaitingForProviderInput =>
       _lastSubmissionResult?.status == 'waiting_for_provider_input';
+
+  bool get showProviderInputPanel => false;
 
   bool get isRunning => _lastSubmissionResult?.status == 'running';
 
@@ -449,11 +458,16 @@ class TaskComposerController extends ChangeNotifier {
   }
 
   List<String> get candidateFiles {
+    if (_planDraftCandidates.isNotEmpty) return _planDraftCandidates;
     final err = _error ?? _lastSubmissionResult?.reason ?? '';
     if (err.contains('edit_plan_ambiguous:')) {
       final parts = err.split('edit_plan_ambiguous:');
       if (parts.length > 1) {
-        return parts[1].split(',').map((e) => e.trim()).where((e) => e.isNotEmpty).toList();
+        return parts[1]
+            .split(',')
+            .map((e) => e.trim())
+            .where((e) => e.isNotEmpty)
+            .toList();
       }
     }
     return const [];
@@ -463,6 +477,8 @@ class TaskComposerController extends ChangeNotifier {
     if (candidatePath.isEmpty) return;
     _requestText = '${_requestText.trim()} In file: $candidatePath';
     _error = null;
+    _planDraftHint = null;
+    _planDraftCandidates = const [];
     notifyListeners();
   }
 
@@ -471,12 +487,28 @@ class TaskComposerController extends ChangeNotifier {
     if (currentId == null || currentId.isEmpty || !canDraftPlan) return null;
     _draftingPlan = true;
     _error = null;
+    _planDraftHint = null;
+    _planDraftCandidates = const [];
     notifyListeners();
     try {
       _activePlan = await client.draftTaskPlan(currentId);
       _draftingPlan = false;
       notifyListeners();
       return _activePlan;
+    } on EngineApiException catch (e) {
+      _draftingPlan = false;
+      final reason = e.body['reason']?.toString() ?? e.message;
+      final hint = e.body['hint']?.toString();
+      final rawCandidates = e.body['candidates'];
+      _planDraftCandidates = rawCandidates is List
+          ? rawCandidates.map((c) => c.toString()).where((c) => c.isNotEmpty).toList()
+          : const [];
+      _planDraftHint = hint;
+      _error = hint == null || hint.isEmpty
+          ? 'Plan draft failed: $reason'
+          : 'Plan draft failed: $reason\n$hint';
+      notifyListeners();
+      return null;
     } catch (e) {
       _draftingPlan = false;
       _error = 'Failed to draft evidence plan: $e';

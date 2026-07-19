@@ -40,6 +40,15 @@ class _FakeClient extends http.BaseClient {
         },
         'qualification': [],
       };
+    } else if (path.contains('/diagnostics')) {
+      body = {
+        'ollama_reachable': true,
+        'git_available': true,
+        'cloud_assisted_only': true,
+        'models_runtime': ['gemma4:31b-cloud'],
+        'notes': [],
+        'engine': {'version': '1.0.0'},
+      };
     } else if (path.contains('/sops')) {
       body = {'sops': []};
     } else {

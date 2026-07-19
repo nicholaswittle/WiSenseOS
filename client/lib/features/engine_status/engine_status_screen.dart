@@ -129,6 +129,46 @@ class _EngineStatusScreenState extends State<EngineStatusScreen> {
           ),
           const SizedBox(height: 16),
         ],
+        if (controller.diagnostics != null) ...[
+          Card(
+            child: Padding(
+              padding: const EdgeInsets.all(16.0),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Onboard / Diagnostics',
+                    style: Theme.of(context).textTheme.titleMedium,
+                  ),
+                  const Divider(height: 24),
+                  Text(
+                    'Ollama: ${controller.diagnostics!.ollamaReachable ? "reachable" : "not reachable"}',
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    'Git: ${controller.diagnostics!.gitAvailable ? "available" : "missing"}',
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    controller.diagnostics!.cloudAssistedOnly
+                        ? 'Mode: cloud-assisted — use Ask Before Changes'
+                        : 'Mode: local builder available',
+                  ),
+                  if (controller.diagnostics!.notes.isNotEmpty) ...[
+                    const SizedBox(height: 8),
+                    ...controller.diagnostics!.notes.map(
+                      (note) => Padding(
+                        padding: const EdgeInsets.only(bottom: 4),
+                        child: Text('• $note', style: Theme.of(context).textTheme.bodySmall),
+                      ),
+                    ),
+                  ],
+                ],
+              ),
+            ),
+          ),
+          const SizedBox(height: 16),
+        ],
         Text(
           'Model Profiles',
           style: Theme.of(context).textTheme.titleLarge,

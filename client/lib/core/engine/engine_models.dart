@@ -28,6 +28,42 @@ class EngineHealth {
       );
 }
 
+class EngineDiagnostics {
+  const EngineDiagnostics({
+    required this.ollamaReachable,
+    required this.gitAvailable,
+    required this.cloudAssistedOnly,
+    required this.modelsRuntime,
+    required this.notes,
+    this.engineVersion = '',
+  });
+
+  final bool ollamaReachable;
+  final bool gitAvailable;
+  final bool cloudAssistedOnly;
+  final List<String> modelsRuntime;
+  final List<String> notes;
+  final String engineVersion;
+
+  factory EngineDiagnostics.fromJson(Map<String, dynamic> json) {
+    final engine = json['engine'] is Map
+        ? Map<String, dynamic>.from(json['engine'] as Map)
+        : const <String, dynamic>{};
+    return EngineDiagnostics(
+      ollamaReachable: json['ollama_reachable'] == true,
+      gitAvailable: json['git_available'] == true,
+      cloudAssistedOnly: json['cloud_assisted_only'] == true,
+      modelsRuntime: ((json['models_runtime'] as List?) ?? const [])
+          .map((item) => item.toString())
+          .toList(growable: false),
+      notes: ((json['notes'] as List?) ?? const [])
+          .map((item) => item.toString())
+          .toList(growable: false),
+      engineVersion: engine['version']?.toString() ?? '',
+    );
+  }
+}
+
 class EngineModelProfile {
   const EngineModelProfile({
     required this.name,

@@ -48,6 +48,16 @@ class WiSenseEngineClient {
     return EngineHealth.fromJson(body);
   }
 
+  Future<EngineDiagnostics> diagnostics() async {
+    final response = await _client.get(
+      _endpoint('/api/v1/diagnostics'),
+      headers: await _headers(),
+    );
+    final body = _body(response);
+    _requireSuccess(response, body, 'Diagnostics');
+    return EngineDiagnostics.fromJson(body);
+  }
+
   Future<EngineTelemetryReport> getTelemetry() async {
     final response = await _client.get(
       _endpoint('/api/v1/telemetry'),

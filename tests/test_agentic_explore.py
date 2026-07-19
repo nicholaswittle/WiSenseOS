@@ -39,6 +39,27 @@ def test_locate_refuses_cloud_models(tmp_path: Path) -> None:
     assert result.problem == "cloud_model_refused"
 
 
+def test_locate_cloud_opt_in_accepts_existing_file(tmp_path: Path) -> None:
+    (tmp_path / "billing.py").write_text("def totals(items):\n    return 0\n", encoding="utf-8")
+
+    def scripted(messages, *, model, tools=None):
+        del messages, model, tools
+        return {
+            "role": "assistant",
+            "content": '{"target_file": "billing.py", "reason": "defines totals"}',
+        }
+
+    result = locate_target_with_exploration(
+        "fix totals",
+        tmp_path,
+        "gemma4:31b-cloud",
+        chat_resp_fn=scripted,
+        allow_cloud=True,
+    )
+    assert result.ok is True
+    assert result.target_file == "billing.py"
+
+
 def test_locate_accepts_existing_file_from_tool_loop(tmp_path: Path) -> None:
     (tmp_path / "billing.py").write_text("def totals(items):\n    return 0\n", encoding="utf-8")
 

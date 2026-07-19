@@ -229,7 +229,7 @@ class _TaskComposerScreenState extends State<TaskComposerScreen> {
                       const SizedBox(width: 8),
                       Expanded(
                         child: Text(
-                          controller.error ?? 'File locate requires target specification.',
+                          controller.error ?? 'Could not draft a write plan.',
                           style: TextStyle(
                             color: Colors.amber.shade900,
                             fontWeight: FontWeight.w600,
@@ -238,10 +238,18 @@ class _TaskComposerScreenState extends State<TaskComposerScreen> {
                       ),
                     ],
                   ),
+                  if (controller.planDraftHint != null &&
+                      !(controller.error?.contains(controller.planDraftHint!) ?? false)) ...[
+                    const SizedBox(height: 8),
+                    Text(
+                      controller.planDraftHint!,
+                      style: TextStyle(color: Colors.amber.shade900),
+                    ),
+                  ],
                   if (controller.candidateFiles.isNotEmpty) ...[
                     const SizedBox(height: 10),
                     Text(
-                      'Candidate Files Found — Tap to Specify Target:',
+                      'Candidate files — tap to add to your request, then draft again:',
                       style: TextStyle(
                         fontSize: 12,
                         fontWeight: FontWeight.bold,
@@ -858,53 +866,15 @@ class _TaskComposerScreenState extends State<TaskComposerScreen> {
               Container(
                 padding: const EdgeInsets.all(12),
                 decoration: BoxDecoration(
-                  color: Colors.blue.shade100,
+                  color: Colors.blueGrey.shade50,
+                  border: Border.all(color: Colors.blueGrey.shade200),
                   borderRadius: BorderRadius.circular(6),
                 ),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      'Work Center Response Required',
-                      style: TextStyle(fontWeight: FontWeight.bold, color: Colors.blue.shade900),
-                    ),
-                    const SizedBox(height: 4),
-                    Text(
-                      'The Work Center needs your explicit response before it can continue. Nothing is sent automatically.',
-                      style: TextStyle(color: Colors.blue.shade900),
-                    ),
-                    if (controller.isCloudBuilderSelected) ...[
-                      const SizedBox(height: 8),
-                      Text(
-                        'Cloud Profile Warning: a response such as "go ahead" may permit the selected cloud builder to spend quota.',
-                        style: TextStyle(color: Colors.amber.shade900, fontWeight: FontWeight.bold),
-                      ),
-                    ],
-                    const SizedBox(height: 12),
-                    TextField(
-                      controller: _providerInputController,
-                      enabled: !controller.sendingProviderInput,
-                      decoration: const InputDecoration(
-                        border: OutlineInputBorder(),
-                        labelText: 'Your response to Work Center',
-                        hintText: 'For example: go ahead',
-                      ),
-                      onChanged: controller.updateProviderInputText,
-                    ),
-                    const SizedBox(height: 8),
-                    SizedBox(
-                      width: double.infinity,
-                      child: ElevatedButton.icon(
-                        onPressed: controller.sendingProviderInput || controller.providerInputText.trim().isEmpty
-                            ? null
-                            : controller.sendProviderInput,
-                        icon: controller.sendingProviderInput
-                            ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2))
-                            : const Icon(Icons.send),
-                        label: Text(controller.sendingProviderInput ? 'Sending Explicit Response...' : 'Send Response to Work Center'),
-                      ),
-                    ),
-                  ],
+                child: Text(
+                  'Status is waiting_for_provider_input, but the native patch executor '
+                  'does not use freeform chat as a write gate. Use digest approval '
+                  'for writes, or Cancel this task.',
+                  style: TextStyle(color: Colors.blueGrey.shade900),
                 ),
               ),
             ],

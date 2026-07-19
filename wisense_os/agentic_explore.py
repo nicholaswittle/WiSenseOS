@@ -1,7 +1,8 @@
 """Agentic read-only explore: local model + bounded glob/grep/read tools.
 
-Writing remains outside this module. Cloud models are refused so raw
-repository content does not transit a cloud boundary wholesale.
+Writing remains outside this module. Cloud models are refused by default
+so raw repository content does not transit a cloud boundary wholesale;
+plan-draft may opt in with ``allow_cloud=True`` (tighter caps + redaction).
 """
 
 from __future__ import annotations
@@ -18,6 +19,8 @@ from .file_finder import is_safe_project_relative_file
 
 _MAX_TURNS = 6
 _MAX_TOOL_RESULT_CHARS = 6000
+_CLOUD_MAX_TURNS = 4
+_CLOUD_MAX_TOOL_RESULT_CHARS = 1500
 _MAX_ANSWER_CHARS = 4000
 _JSON_OBJECT = re.compile(r"\{.*\}", re.DOTALL)
 
@@ -59,14 +62,24 @@ def _trace_entry(name: str, args: Any) -> str:
     return f"{name}({key})" if key else f"{name}()"
 
 
-def _bounded_result(result: dict) -> dict:
+def _bounded_result(result: dict, *, max_chars: int = _MAX_TOOL_RESULT_CHARS) -> dict:
     content = result.get("content")
-    if isinstance(content, str) and len(content) > _MAX_TOOL_RESULT_CHARS:
+    if isinstance(content, str) and len(content) > max_chars:
         return {
             **result,
-            "content": content[:_MAX_TOOL_RESULT_CHARS],
+            "content": content[:max_chars],
             "truncated": True,
         }
+    # Also bound grep match text bundles that pack into JSON later.
+    matches = result.get("matches")
+    if isinstance(matches, list) and matches:
+        packed = json.dumps(matches)
+        if len(packed) > max_chars:
+            return {
+                **result,
+                "matches": matches[: max(1, len(matches) // 2)],
+                "truncated": True,
+            }
     return result
 
 
@@ -186,10 +199,22 @@ def locate_target_with_exploration(
     model: str,
     *,
     chat_resp_fn: ChatRespFn,
-    max_turns: int = _MAX_TURNS,
+    max_turns: int | None = None,
+    allow_cloud: bool = False,
 ) -> LocatedTarget:
-    if is_cloud_model(model):
+    """Locate one existing file via read-only tools.
+
+    Cloud is refused unless ``allow_cloud=True``. Cloud mode uses tighter
+    turn/result caps; tool content is redacted by exploration_tools.
+    """
+    cloud = is_cloud_model(model)
+    if cloud and not allow_cloud:
         return LocatedTarget(ok=False, problem="cloud_model_refused")
+
+    turns_limit = max_turns if max_turns is not None else (
+        _CLOUD_MAX_TURNS if cloud else _MAX_TURNS
+    )
+    result_cap = _CLOUD_MAX_TOOL_RESULT_CHARS if cloud else _MAX_TOOL_RESULT_CHARS
 
     messages: list[dict[str, Any]] = [
         {"role": "system", "content": _LOCATE_SYSTEM},
@@ -198,7 +223,7 @@ def locate_target_with_exploration(
     trace: list[str] = []
     response: dict[str, Any] = {}
     try:
-        for _ in range(max_turns):
+        for _ in range(turns_limit):
             response = chat_resp_fn(messages, model=model, tools=TOOL_SCHEMAS)
             tool_calls = response.get("tool_calls")
             messages.append(response)
@@ -209,7 +234,10 @@ def locate_target_with_exploration(
                 name = func.get("name", "")
                 args = func.get("arguments", {})
                 trace.append(_trace_entry(name, args))
-                result = _bounded_result(dispatch_tool_call(project_root, name, args))
+                result = _bounded_result(
+                    dispatch_tool_call(project_root, name, args),
+                    max_chars=result_cap,
+                )
                 messages.append({
                     "role": "tool",
                     "name": name,

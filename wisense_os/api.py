@@ -3,12 +3,15 @@
 from __future__ import annotations
 
 import hmac
+import shutil
+import time
 from threading import Thread
 from pathlib import Path
 
-from flask import Flask, jsonify, request
+from flask import Flask, Response, jsonify, request, stream_with_context
 
 from .agentic_explore import is_cloud_model, locate_target_with_exploration
+from .budget import BudgetExceededError, UnknownModelPricingError, estimate_tokens
 from .context import generate_project_context, read_project_context
 from .contracts import RunMode, TaskRequest, TaskStatus
 from .explore import explore_project
@@ -48,6 +51,39 @@ def create_app(coordinator: TaskCoordinator, *, auth_token: str | None = None) -
     @app.get("/api/v1/health")
     def health():
         return jsonify({"engine": "wisense-os", "version": "0.1.0", "status": "ready"})
+
+    @app.get("/api/v1/diagnostics")
+    def diagnostics():
+        """Onboard / ops snapshot — truthful, no invented compute metrics."""
+        adapter = getattr(coordinator.executor, "model", None)
+        runtime: list[str] = []
+        ollama_reachable = False
+        if adapter is not None:
+            discover = getattr(adapter, "available_models", None)
+            if callable(discover):
+                try:
+                    runtime = sorted(discover())
+                    ollama_reachable = True
+                except Exception:  # noqa: BLE001
+                    ollama_reachable = False
+        profiles = list(coordinator.models.profiles())
+        available = [p for p in profiles if p.available]
+        cloud_assisted_only = bool(available) and all(p.is_cloud for p in available)
+        return jsonify({
+            "engine": {"name": "wisense-os", "version": "0.1.0", "status": "ready"},
+            "ollama_reachable": ollama_reachable,
+            "git_available": shutil.which("git") is not None,
+            "cloud_assisted_only": cloud_assisted_only,
+            "models_configured": [p.to_json() for p in profiles],
+            "models_runtime": runtime,
+            "recommended_daily_mode": (
+                "ask_before_changes" if cloud_assisted_only else "ask_before_changes"
+            ),
+            "notes": [
+                "Local Autopilot and Offline require a qualified local builder.",
+                "Cloud agentic locate uses redacted, bounded tools and budget reservation.",
+            ],
+        })
 
     @app.get("/api/v1/telemetry")
     def telemetry():
@@ -343,44 +379,115 @@ def create_app(coordinator: TaskCoordinator, *, auth_token: str | None = None) -
             # reviews these exact files before approval.
             result = draft_edit_plan(record.request.request, project_root)
         if (not result.ok or result.plan is None) and project_root.is_dir():
-            # Optional local agentic locate when the deterministic ladder misses.
+            # Agentic locate when the deterministic ladder misses.
+            # Local: always allowed. Cloud: opt-in allow_cloud with budget + redaction.
             adapter = getattr(coordinator.executor, "model", None)
             tool_fn = getattr(adapter, "complete_with_tools", None)
             chat_model = record.request.chat_model
-            if callable(tool_fn) and not is_cloud_model(chat_model):
-                located = locate_target_with_exploration(
-                    record.request.request,
-                    project_root,
-                    chat_model,
-                    chat_resp_fn=tool_fn,
-                )
-                if located.ok:
-                    rewritten = (
-                        f"{record.request.request} (target file: {located.target_file})"
-                    )
-                    result = draft_edit_plan(rewritten, project_root)
-                    if result.ok and result.plan is not None:
-                        coordinator.store.append_event(
-                            task_id,
-                            "target_located",
-                            f"{located.target_file} ({located.reason or 'agentic locate'})",
+            cloud = is_cloud_model(chat_model)
+            if callable(tool_fn) and not (cloud and record.request.offline):
+                reservation_id: str | None = None
+                try:
+                    if cloud and coordinator.budget is not None:
+                        try:
+                            coordinator.models.get(chat_model)  # ensure configured
+                            reservation_id = coordinator.budget.reserve(
+                                model=chat_model,
+                                input_tokens=estimate_tokens(record.request.request) * 2,
+                                output_tokens=estimate_tokens(record.request.request),
+                                task_id=task_id,
+                            )
+                            coordinator.store.append_event(
+                                task_id,
+                                "budget_reserved",
+                                f"reserved cloud spend for locate via {chat_model}",
+                            )
+                        except (BudgetExceededError, UnknownModelPricingError, ModelPolicyError) as exc:
+                            coordinator.store.append_event(
+                                task_id,
+                                "locate_skipped",
+                                f"cloud locate skipped: {exc}",
+                            )
+                            tool_fn = None
+                    if callable(tool_fn):
+                        located = locate_target_with_exploration(
+                            record.request.request,
+                            project_root,
+                            chat_model,
+                            chat_resp_fn=tool_fn,
+                            allow_cloud=cloud,
                         )
+                        if reservation_id and coordinator.budget is not None:
+                            if located.ok:
+                                coordinator.budget.reconcile(reservation_id)
+                            else:
+                                coordinator.budget.release(reservation_id)
+                        if located.ok:
+                            rewritten = (
+                                f"{record.request.request} "
+                                f"(target file: {located.target_file})"
+                            )
+                            result = draft_edit_plan(rewritten, project_root)
+                            if result.ok and result.plan is not None:
+                                mode_label = "cloud-safe locate" if cloud else "agentic locate"
+                                coordinator.store.append_event(
+                                    task_id,
+                                    "target_located",
+                                    f"{located.target_file} ({located.reason or mode_label})",
+                                )
+                        elif located.problem:
+                            coordinator.store.append_event(
+                                task_id,
+                                "locate_failed",
+                                located.problem,
+                            )
+                except Exception as exc:  # noqa: BLE001
+                    if reservation_id and coordinator.budget is not None:
+                        coordinator.budget.release(reservation_id)
+                    coordinator.store.append_event(
+                        task_id, "locate_failed", f"{type(exc).__name__}: {exc}",
+                    )
         if not result.ok or result.plan is None:
-            payload = {
+            envelope = explore_project(project_root, record.request.request)
+            candidates: list[str] = list(envelope.candidates)
+            if result.reason.startswith("edit_plan_ambiguous:"):
+                candidates = [
+                    part.strip()
+                    for part in result.reason.split(":", 1)[1].split(",")
+                    if part.strip()
+                ]
+            payload: dict = {
                 "ok": False,
                 "reason": result.reason,
                 "intent": intent.to_json(),
+                "candidates": candidates,
+                "context": envelope.to_json(),
             }
-            if intent.kind in {"question", "chat"}:
+            if result.reason == "edit_plan_test_not_found":
+                payload["hint"] = (
+                    "Name both the implementation file and its test "
+                    "(e.g. billing.py and test_billing.py), then draft again."
+                )
+            elif result.reason.startswith("edit_plan_ambiguous:"):
+                payload["hint"] = (
+                    "Multiple files match — tap a candidate chip or name one path explicitly."
+                )
+            elif result.reason == "edit_plan_needs_one_named_existing_file":
+                payload["hint"] = (
+                    "Name an existing project file in the request "
+                    "(e.g. 'fix the bug in billing.py')."
+                )
+            elif intent.kind in {"question", "chat"}:
                 payload["hint"] = (
                     "Use Talk Only for questions; Ask Before Changes is for write plans."
                 )
-            if intent.kind == "audit":
-                payload["context"] = explore_project(
-                    project_root, record.request.request,
-                ).to_json()
+            elif intent.kind == "audit":
                 payload["hint"] = (
                     "Audit/explore is read-only; name a specific edit target to draft a write plan."
+                )
+            else:
+                payload["hint"] = (
+                    "Could not draft a write plan. Name the target file and its test, then retry."
                 )
             return jsonify(payload), 422
         coordinator.store.save_plan(task_id, result.plan)
@@ -417,5 +524,45 @@ def create_app(coordinator: TaskCoordinator, *, auth_token: str | None = None) -
         if approval is not None:
             payload["approval"] = approval
         return jsonify(payload)
+
+    @app.get("/api/v1/tasks/<task_id>/stream")
+    def task_event_stream(task_id: str):
+        """Server-sent events for task status/events (Companion may still poll)."""
+        if coordinator.store.get(task_id) is None:
+            return jsonify({"error": "task not found"}), 404
+
+        def generate():
+            last_seq = 0
+            last_status = ""
+            for _ in range(90):  # ~3 minutes at 2s
+                record = coordinator.store.get(task_id)
+                if record is None:
+                    yield "event: gone\ndata: {}\n\n"
+                    break
+                events = coordinator.store.events(task_id)
+                new_events = [e for e in events if e.sequence > last_seq]
+                if new_events or record.status.value != last_status:
+                    import json as _json
+                    payload = {
+                        "task_id": task_id,
+                        "status": record.status.value,
+                        "reason": record.reason,
+                        "events": [e.to_json() for e in new_events],
+                    }
+                    yield f"event: task\ndata: {_json.dumps(payload)}\n\n"
+                    if events:
+                        last_seq = events[-1].sequence
+                    last_status = record.status.value
+                if record.status.value in {
+                    "completed", "failed", "canceled", "interrupted", "blocked",
+                }:
+                    break
+                time.sleep(2)
+
+        return Response(
+            stream_with_context(generate()),
+            mimetype="text/event-stream",
+            headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+        )
 
     return app

@@ -67,6 +67,18 @@ void main() {
             }),
             200,
           );
+        } else if (request.url.path.endsWith('/diagnostics')) {
+          return http.Response(
+            jsonEncode({
+              'ollama_reachable': true,
+              'git_available': true,
+              'cloud_assisted_only': true,
+              'models_runtime': ['gemma4:31b-cloud'],
+              'notes': ['Use Ask Before Changes on cloud-only installs.'],
+              'engine': {'version': '1.0.0'},
+            }),
+            200,
+          );
         }
         return http.Response('Not Found', 404);
       });
@@ -87,6 +99,9 @@ void main() {
       expect(controller.health!.status, equals('ok'));
       expect(controller.health!.version, equals('1.0.0'));
       expect(controller.models.length, equals(3));
+      expect(controller.diagnostics, isNotNull);
+      expect(controller.diagnostics!.cloudAssistedOnly, isTrue);
+      expect(controller.diagnostics!.ollamaReachable, isTrue);
 
       // Prove cloud labeling data
       final cloudModel = controller.models.firstWhere((m) => m.name == 'claude-3-7-sonnet');

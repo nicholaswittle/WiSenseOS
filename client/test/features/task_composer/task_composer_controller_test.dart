@@ -17,7 +17,10 @@ class FakeHttpClient extends http.BaseClient {
     return http.StreamedResponse(
       Stream.value(utf8.encode(response.body)),
       response.statusCode,
-      headers: response.headers,
+      headers: {
+        'content-type': 'application/json',
+        ...response.headers,
+      },
       request: request,
     );
   }
@@ -395,6 +398,7 @@ void main() {
       await controller.submitTask();
 
       expect(controller.isWaitingForProviderInput, isTrue);
+      expect(controller.showProviderInputPanel, isFalse);
       expect(controller.isValid, isFalse);
       expect(await controller.sendProviderInput(), isNull);
       controller.updateProviderInputText('go ahead');
@@ -404,6 +408,66 @@ void main() {
       expect(result!.status, 'completed');
       expect(result.events.last.kind, 'completed');
       expect(controller.providerInputText, isEmpty);
+      controller.dispose();
+    });
+
+    test('draftActivePlan surfaces engine hint and candidate chips on 422', () async {
+      final fakeClient = FakeHttpClient((request) async {
+        if (request.url.path.endsWith('/plan-draft')) {
+          return http.Response(
+            jsonEncode({
+              'ok': false,
+              'reason': 'edit_plan_ambiguous:billing.py,invoicing.py',
+              'hint': 'Multiple files match — tap a candidate chip or name one path explicitly.',
+              'candidates': ['billing.py', 'invoicing.py'],
+              'intent': {'kind': 'edit'},
+            }),
+            422,
+            headers: {'content-type': 'application/json'},
+          );
+        }
+        return http.Response(
+          jsonEncode({
+            'task_id': 'task-plan',
+            'status': 'accepted',
+            'events': [],
+          }),
+          202,
+          headers: {'content-type': 'application/json'},
+        );
+      });
+
+      final controller = TaskComposerController(
+        client: WiSenseEngineClient(client: fakeClient),
+      );
+      const model = EngineModelProfile(
+        name: 'gemma4:31b-cloud',
+        provider: 'cloud',
+        roles: ['builder', 'chat'],
+        available: true,
+        supervisedTestingOnly: true,
+        futureLocalTarget: true,
+      );
+      const project = EngineProject(
+        projectId: 'proj-1',
+        displayName: 'WiSense',
+        root: 'C:/wisense',
+        localAutopilotTrusted: false,
+      );
+      controller.selectProject(project);
+      controller.selectChatModel(model);
+      controller.selectBuilderModel(model);
+      controller.updateRequestText('fix totals');
+
+      final submitted = await controller.submitTask();
+      expect(submitted, isNotNull);
+      expect(controller.canDraftPlan, isTrue);
+
+      final plan = await controller.draftActivePlan();
+      expect(plan, isNull);
+      expect(controller.planDraftHint, contains('candidate chip'));
+      expect(controller.planDraftCandidates, equals(['billing.py', 'invoicing.py']));
+      expect(controller.error, contains('edit_plan_ambiguous'));
       controller.dispose();
     });
   });
