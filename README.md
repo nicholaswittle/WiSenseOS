@@ -11,7 +11,7 @@ bridge boundary so the future Flutter client has one task lifecycle to use.
 
 - `gemma4:31b-cloud`: supervised cloud builder test profile; future local-Gemma
   target, but **not** a current local service.
-- `glm-5.2:cloud`: supervised cloud chat/planning test profile.
+- `glm-5.2:cloud`: supervised cloud chat/planning/builder test profile.
 
 `local_autopilot` is intentionally refused until a local builder has been
 installed and qualified. Tests use a fake bridge and never call a model or
@@ -22,4 +22,3 @@ modify a project.
 ```powershell
 python -m pytest -q
 ```
-

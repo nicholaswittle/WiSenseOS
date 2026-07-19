@@ -10,10 +10,9 @@
   {
     "name": "glm-5.2:cloud",
     "provider": "cloud",
-    "roles": ["chat", "planner"],
+    "roles": ["chat", "planner", "builder"],
     "available": true,
     "supervised_testing_only": true,
     "future_local_target": false
   }
 ]
-

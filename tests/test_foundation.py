@@ -51,6 +51,12 @@ def test_local_autopilot_fails_closed_without_a_local_builder(tmp_path: Path) ->
     assert bridge.calls == []
 
 
+def test_glm_cloud_is_allowed_for_supervised_builder_testing(tmp_path: Path) -> None:
+    coordinator, _ = make_coordinator(tmp_path)
+    accepted = coordinator.submit(request(builder="glm-5.2:cloud"))
+    assert accepted.status is TaskStatus.ACCEPTED
+
+
 def test_talk_only_never_delegates_to_builder(tmp_path: Path) -> None:
     coordinator, bridge = make_coordinator(tmp_path)
     accepted = coordinator.submit(request(mode=RunMode.TALK_ONLY))
