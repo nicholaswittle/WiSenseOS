@@ -23,6 +23,7 @@ class TaskStatus(StrEnum):
     BLOCKED = "blocked"
     RUNNING = "running"
     WAITING_FOR_APPROVAL = "waiting_for_approval"
+    WAITING_FOR_PROVIDER_INPUT = "waiting_for_provider_input"
     COMPLETED = "completed"
     FAILED = "failed"
 

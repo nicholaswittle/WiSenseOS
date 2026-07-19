@@ -11,10 +11,18 @@ from wisense_os.store import TaskStore
 class FakeBridge:
     def __init__(self) -> None:
         self.calls: list[TaskRequest] = []
+        self.follow_ups: list[str] = []
+        self.reply = "Done -- committed the change to example.py."
+        self.follow_up_reply = "Done -- committed the change to example.py."
 
     def run(self, request: TaskRequest) -> dict[str, object]:
         self.calls.append(request)
-        return {"reply": "Done -- committed the change to example.py."}
+        return {"reply": self.reply}
+
+    def continue_conversation(self, request: TaskRequest, message: str) -> dict[str, object]:
+        self.calls.append(request)
+        self.follow_ups.append(message)
+        return {"reply": self.follow_up_reply}
 
 
 def make_coordinator(tmp_path: Path) -> tuple[TaskCoordinator, FakeBridge]:
@@ -98,3 +106,44 @@ def test_approval_is_single_use_and_does_not_run_a_model(tmp_path: Path) -> None
         assert "not awaiting approval" in str(exc)
     else:
         raise AssertionError("a task approval must be single-use")
+
+
+def test_provider_confirmation_is_a_durable_second_gate(tmp_path: Path) -> None:
+    coordinator, bridge = make_coordinator(tmp_path)
+    bridge.reply = "This would use gemma4:31b-cloud, which may spend quota -- go ahead?"
+    waiting = coordinator.submit(request())
+
+    coordinator.approve(waiting.task_id)
+    provider_waiting = coordinator.execute(waiting.task_id)
+
+    assert provider_waiting.status == TaskStatus.WAITING_FOR_PROVIDER_INPUT
+    assert "may spend quota" in (provider_waiting.reason or "")
+    assert bridge.follow_ups == []
+    assert [event.kind for event in coordinator.store.events(waiting.task_id)] == [
+        "awaiting_approval", "approved", "delegating", "provider_input_required",
+    ]
+
+    completed = coordinator.continue_with_provider_input(waiting.task_id, "go ahead")
+
+    assert completed.status == TaskStatus.COMPLETED
+    assert bridge.follow_ups == ["go ahead"]
+    assert [event.kind for event in coordinator.store.events(waiting.task_id)][-2:] == [
+        "provider_input_submitted", "completed",
+    ]
+
+
+def test_provider_response_blocks_a_second_work_center_handoff(tmp_path: Path) -> None:
+    coordinator, bridge = make_coordinator(tmp_path)
+    bridge.reply = "This may spend quota -- go ahead?"
+    first = coordinator.submit(request())
+    second = coordinator.submit(request())
+    coordinator.approve(first.task_id)
+    coordinator.execute(first.task_id)
+
+    try:
+        coordinator.approve(second.task_id)
+    except ValueError as exc:
+        assert "another task is awaiting a Work Center response" in str(exc)
+    else:
+        raise AssertionError("a second handoff must not overwrite the provider conversation")
+    assert bridge.calls == [request()]

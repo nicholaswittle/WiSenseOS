@@ -303,5 +303,56 @@ void main() {
       expect(controller.isCloudBuilderSelected, isTrue);
       expect(controller.showCloudApprovalWarning, isTrue);
     });
+
+    test('provider follow-up requires explicit input and reloads its durable timeline', () async {
+      String? sentMessage;
+      final fakeClient = FakeHttpClient((request) async {
+        if (request.url.path.endsWith('/provider-input')) {
+          sentMessage = jsonDecode((request as http.Request).body)['message'] as String;
+          return http.Response(jsonEncode({'task_id': 'task-103', 'status': 'running'}), 202);
+        }
+        if (request.url.path.endsWith('/tasks/task-103')) {
+          return http.Response(jsonEncode({
+            'task_id': 'task-103',
+            'status': 'completed',
+            'events': [
+              {'sequence': 1, 'kind': 'provider_input_required', 'detail': 'Work Center requires an explicit user response'},
+              {'sequence': 2, 'kind': 'provider_input_submitted', 'detail': 'user sent response'},
+              {'sequence': 3, 'kind': 'completed', 'detail': 'engine response recorded'},
+            ],
+          }), 200);
+        }
+        return http.Response(jsonEncode({
+          'task_id': 'task-103',
+          'status': 'waiting_for_provider_input',
+          'reason': 'This may spend quota -- go ahead?',
+        }), 202);
+      });
+      final controller = TaskComposerController(client: WiSenseEngineClient(client: fakeClient));
+      const model = EngineModelProfile(
+        name: 'gemma4:31b-cloud', provider: 'cloud', roles: ['builder', 'chat'],
+        available: true, supervisedTestingOnly: true, futureLocalTarget: true,
+      );
+      const project = EngineProject(
+        projectId: 'proj-1', displayName: 'WiSense', root: 'C:/wisense', localAutopilotTrusted: false,
+      );
+      controller.selectProject(project);
+      controller.selectChatModel(model);
+      controller.selectBuilderModel(model);
+      controller.updateRequestText('Add endpoint');
+
+      await controller.submitTask();
+
+      expect(controller.isWaitingForProviderInput, isTrue);
+      expect(controller.isValid, isFalse);
+      expect(await controller.sendProviderInput(), isNull);
+      controller.updateProviderInputText('go ahead');
+      final result = await controller.sendProviderInput();
+
+      expect(sentMessage, 'go ahead');
+      expect(result!.status, 'completed');
+      expect(result.events.last.kind, 'completed');
+      expect(controller.providerInputText, isEmpty);
+    });
   });
 }

@@ -146,3 +146,13 @@ class TaskStore:
         with self._connect() as db:
             rows = db.execute("SELECT * FROM task_events WHERE task_id = ? ORDER BY sequence", (task_id,)).fetchall()
         return [TaskEvent(task_id=row["task_id"], sequence=row["sequence"], kind=row["kind"], detail=row["detail"]) for row in rows]
+
+    def provider_input_waiting_task(self, *, exclude_task_id: str = "") -> TaskRecord | None:
+        """Return the one bridge conversation that must be resumed first."""
+        with self._connect() as db:
+            row = db.execute(
+                """SELECT * FROM tasks WHERE status = ? AND task_id != ?
+                   ORDER BY rowid ASC LIMIT 1""",
+                (TaskStatus.WAITING_FOR_PROVIDER_INPUT.value, exclude_task_id),
+            ).fetchone()
+        return self._record_from_row(row)

@@ -17,6 +17,7 @@ class TaskComposerScreen extends StatefulWidget {
 
 class _TaskComposerScreenState extends State<TaskComposerScreen> {
   final TextEditingController _textController = TextEditingController();
+  final TextEditingController _providerInputController = TextEditingController();
 
   @override
   void initState() {
@@ -30,6 +31,7 @@ class _TaskComposerScreenState extends State<TaskComposerScreen> {
   void dispose() {
     widget.controller.removeListener(_onControllerChanged);
     _textController.dispose();
+    _providerInputController.dispose();
     super.dispose();
   }
 
@@ -37,6 +39,9 @@ class _TaskComposerScreenState extends State<TaskComposerScreen> {
     if (mounted) {
       if (_textController.text != widget.controller.requestText) {
         _textController.text = widget.controller.requestText;
+      }
+      if (_providerInputController.text != widget.controller.providerInputText) {
+        _providerInputController.text = widget.controller.providerInputText;
       }
       setState(() {});
     }
@@ -292,14 +297,15 @@ class _TaskComposerScreenState extends State<TaskComposerScreen> {
   ) {
     final isBlocked = result.isBlocked;
     final isWaiting = controller.isWaitingForApproval;
+    final isProviderInput = controller.isWaitingForProviderInput;
     final color = isBlocked
         ? Colors.orange
-        : (isWaiting ? Colors.blue : Colors.green);
+        : (isWaiting || isProviderInput ? Colors.blue : Colors.green);
 
     return Card(
       color: isBlocked
           ? Colors.orange.shade50
-          : (isWaiting ? Colors.blue.shade50 : Colors.green.shade50),
+          : (isWaiting || isProviderInput ? Colors.blue.shade50 : Colors.green.shade50),
       shape: RoundedRectangleBorder(
         side: BorderSide(color: color, width: 1.5),
         borderRadius: BorderRadius.circular(8),
@@ -422,6 +428,62 @@ class _TaskComposerScreenState extends State<TaskComposerScreen> {
                           backgroundColor: Colors.blue.shade700,
                           foregroundColor: Colors.white,
                         ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+
+            if (isProviderInput) ...[
+              const SizedBox(height: 16),
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: Colors.blue.shade100,
+                  borderRadius: BorderRadius.circular(6),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Work Center Response Required',
+                      style: TextStyle(fontWeight: FontWeight.bold, color: Colors.blue.shade900),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      'The Work Center needs your explicit response before it can continue. Nothing is sent automatically.',
+                      style: TextStyle(color: Colors.blue.shade900),
+                    ),
+                    if (controller.isCloudBuilderSelected) ...[
+                      const SizedBox(height: 8),
+                      Text(
+                        'Cloud Profile Warning: a response such as "go ahead" may permit the selected cloud builder to spend quota.',
+                        style: TextStyle(color: Colors.amber.shade900, fontWeight: FontWeight.bold),
+                      ),
+                    ],
+                    const SizedBox(height: 12),
+                    TextField(
+                      controller: _providerInputController,
+                      enabled: !controller.sendingProviderInput,
+                      decoration: const InputDecoration(
+                        border: OutlineInputBorder(),
+                        labelText: 'Your response to Work Center',
+                        hintText: 'For example: go ahead',
+                      ),
+                      onChanged: controller.updateProviderInputText,
+                    ),
+                    const SizedBox(height: 8),
+                    SizedBox(
+                      width: double.infinity,
+                      child: ElevatedButton.icon(
+                        onPressed: controller.sendingProviderInput || controller.providerInputText.trim().isEmpty
+                            ? null
+                            : controller.sendProviderInput,
+                        icon: controller.sendingProviderInput
+                            ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2))
+                            : const Icon(Icons.send),
+                        label: Text(controller.sendingProviderInput ? 'Sending Explicit Response...' : 'Send Response to Work Center'),
                       ),
                     ),
                   ],

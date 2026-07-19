@@ -81,6 +81,25 @@ def create_app(coordinator: TaskCoordinator) -> Flask:
         Thread(target=coordinator.execute, args=(record.task_id,), daemon=True).start()
         return jsonify(record.to_json()), 202
 
+    @app.post("/api/v1/tasks/<task_id>/provider-input")
+    def provider_input(task_id: str):
+        data = request.get_json(force=True)
+        message = str(data.get("message", ""))
+        try:
+            record = coordinator.store.get(task_id)
+            if record is None:
+                raise KeyError(task_id)
+            if record.status != TaskStatus.WAITING_FOR_PROVIDER_INPUT:
+                raise ValueError(f"task is not awaiting provider input: {record.status.value}")
+            if not message.strip():
+                raise ValueError("provider input is required")
+        except KeyError:
+            return jsonify({"error": "task not found"}), 404
+        except ValueError as exc:
+            return jsonify({"error": str(exc)}), 409
+        Thread(target=coordinator.continue_with_provider_input, args=(task_id, message), daemon=True).start()
+        return jsonify({**record.to_json(), "status": TaskStatus.RUNNING.value}), 202
+
     @app.get("/api/v1/tasks/<task_id>")
     def task_status(task_id: str):
         record = coordinator.store.get(task_id)

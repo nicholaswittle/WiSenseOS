@@ -11,6 +11,7 @@ class TaskComposerController extends ChangeNotifier {
   bool _loading = false;
   bool _submitting = false;
   bool _approving = false;
+  bool _sendingProviderInput = false;
   String? _error;
   List<EngineProject> _projects = const [];
   List<EngineModelProfile> _models = const [];
@@ -20,11 +21,13 @@ class TaskComposerController extends ChangeNotifier {
   EngineModelProfile? _selectedBuilderModel;
   String _selectedMode = 'ask_before_changes';
   String _requestText = '';
+  String _providerInputText = '';
   EngineTaskStatus? _lastSubmissionResult;
 
   bool get loading => _loading;
   bool get submitting => _submitting;
   bool get approving => _approving;
+  bool get sendingProviderInput => _sendingProviderInput;
   String? get error => _error;
   List<EngineProject> get projects => _projects;
   List<EngineModelProfile> get models => _models;
@@ -38,6 +41,7 @@ class TaskComposerController extends ChangeNotifier {
   EngineModelProfile? get selectedBuilderModel => _selectedBuilderModel;
   String get selectedMode => _selectedMode;
   String get requestText => _requestText;
+  String get providerInputText => _providerInputText;
   EngineTaskStatus? get lastSubmissionResult => _lastSubmissionResult;
   EngineTaskStatus? get activeTaskStatus => _lastSubmissionResult;
 
@@ -55,6 +59,9 @@ class TaskComposerController extends ChangeNotifier {
   bool get isWaitingForApproval =>
       _lastSubmissionResult?.status == 'waiting_for_approval';
 
+  bool get isWaitingForProviderInput =>
+      _lastSubmissionResult?.status == 'waiting_for_provider_input';
+
   bool get showCloudApprovalWarning =>
       isWaitingForApproval && isCloudBuilderSelected;
 
@@ -64,8 +71,10 @@ class TaskComposerController extends ChangeNotifier {
       _selectedBuilderModel != null &&
       _requestText.trim().isNotEmpty &&
       !isAutopilotBlockedByCloud &&
+      !isWaitingForProviderInput &&
       !_submitting &&
-      !_approving;
+      !_approving &&
+      !_sendingProviderInput;
 
   Future<void> load() async {
     _loading = true;
@@ -119,6 +128,11 @@ class TaskComposerController extends ChangeNotifier {
 
   void updateRequestText(String text) {
     _requestText = text;
+    notifyListeners();
+  }
+
+  void updateProviderInputText(String text) {
+    _providerInputText = text;
     notifyListeners();
   }
 
@@ -189,6 +203,29 @@ class TaskComposerController extends ChangeNotifier {
     } catch (e) {
       _approving = false;
       _error = 'Task approval failed: $e';
+      notifyListeners();
+      return null;
+    }
+  }
+
+  Future<EngineTaskStatus?> sendProviderInput() async {
+    final currentId = _lastSubmissionResult?.taskId;
+    if (currentId == null || currentId.isEmpty || !isWaitingForProviderInput || _providerInputText.trim().isEmpty) {
+      return null;
+    }
+    _sendingProviderInput = true;
+    _error = null;
+    notifyListeners();
+    try {
+      final accepted = await client.submitProviderInput(currentId, _providerInputText.trim());
+      _lastSubmissionResult = await client.getTask(accepted.taskId);
+      _providerInputText = '';
+      _sendingProviderInput = false;
+      notifyListeners();
+      return _lastSubmissionResult;
+    } catch (e) {
+      _sendingProviderInput = false;
+      _error = 'Failed to send provider input: $e';
       notifyListeners();
       return null;
     }

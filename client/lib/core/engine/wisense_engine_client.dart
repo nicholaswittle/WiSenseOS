@@ -110,6 +110,20 @@ class WiSenseEngineClient {
     return EngineTaskStatus.fromJson(body, statusCode: response.statusCode);
   }
 
+  Future<EngineTaskStatus> submitProviderInput(String taskId, String message) async {
+    final response = await _client.post(
+      _endpoint('/api/v1/tasks/$taskId/provider-input'),
+      headers: await _headers(),
+      body: jsonEncode({'message': message}),
+    );
+    final body = _body(response);
+    if (response.statusCode == 202) {
+      return EngineTaskStatus.fromJson(body, statusCode: response.statusCode);
+    }
+    _requireSuccess(response, body, 'Send provider input');
+    return EngineTaskStatus.fromJson(body, statusCode: response.statusCode);
+  }
+
   Uri _endpoint(String path) =>
       _baseUri.resolve(path.startsWith('/') ? path.substring(1) : path);
 

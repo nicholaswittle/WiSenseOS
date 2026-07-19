@@ -18,6 +18,8 @@ from .contracts import TaskRequest
 class WorkCenterBridge(Protocol):
     def run(self, request: TaskRequest) -> dict[str, object]: ...
 
+    def continue_conversation(self, request: TaskRequest, message: str) -> dict[str, object]: ...
+
 
 @dataclass
 class HttpWorkCenterBridge:
@@ -44,3 +46,6 @@ class HttpWorkCenterBridge:
         self._post("/api/root", {"path": request.project_root})
         return self._post("/api/message", {"message": request.request})
 
+    def continue_conversation(self, request: TaskRequest, message: str) -> dict[str, object]:
+        """Send an explicitly supplied follow-up without resetting Work Center state."""
+        return self._post("/api/message", {"message": message})
