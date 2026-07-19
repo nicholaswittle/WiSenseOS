@@ -23,6 +23,7 @@ def test_adapter_redacts_prompt_before_using_loopback_transport() -> None:
     assert reply == '{"files":[]}'
     assert captured["url"] == "http://127.0.0.1:11434/api/chat"
     assert captured["payload"]["messages"][0]["content"] == "API_KEY=[REDACTED]\nPlease plan this."
+    assert captured["payload"]["format"] == "json"
 
 
 def test_redactor_handles_unquoted_environment_style_assignments() -> None:

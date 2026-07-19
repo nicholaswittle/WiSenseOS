@@ -53,6 +53,7 @@ class OllamaChatAdapter:
         payload = json.dumps({
             "model": model,
             "messages": redact_messages(messages),
+            "format": "json",
             "stream": False,
         }).encode("utf-8")
         request = Request(
