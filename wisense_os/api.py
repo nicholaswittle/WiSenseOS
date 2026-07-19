@@ -9,7 +9,7 @@ from pathlib import Path
 from flask import Flask, jsonify, request
 
 from .contracts import RunMode, TaskRequest, TaskStatus
-from .plan import draft_evidence_plan
+from .plan import draft_edit_plan, draft_evidence_plan
 from .project_resolution import resolve_project_reference
 from .service import TaskCoordinator
 
@@ -158,7 +158,13 @@ def create_app(coordinator: TaskCoordinator, *, auth_token: str | None = None) -
             return jsonify({"error": "task not found"}), 404
         if record.status != TaskStatus.WAITING_FOR_APPROVAL:
             return jsonify({"error": "plan drafting is available only before Engine handoff"}), 409
-        result = draft_evidence_plan(record.request.request, Path(record.request.project_root))
+        project_root = Path(record.request.project_root)
+        result = draft_evidence_plan(record.request.request, project_root)
+        if not result.ok or result.plan is None:
+            # Fall back to a bounded edit plan for a request that names one
+            # existing file whose test can be located. The user still
+            # reviews these exact files before approval.
+            result = draft_edit_plan(record.request.request, project_root)
         if not result.ok or result.plan is None:
             return jsonify({"ok": False, "reason": result.reason}), 422
         coordinator.store.save_plan(task_id, result.plan)

@@ -14,6 +14,7 @@ from typing import Any, Mapping
 
 
 _ENDPOINT = re.compile(r"\b(GET|POST|PUT|PATCH|DELETE)\s+`?(/api/v\d+/[\w/-]+)`?", re.IGNORECASE)
+_PY_FILE = re.compile(r"\b([\w./-]+\.py)\b")
 
 
 @dataclass(frozen=True)
@@ -83,6 +84,95 @@ def draft_evidence_plan(request: str, project_root: Path) -> PlanDraftResult:
             f"The existing no-network fixture verifies {method} {route}.",
             "No unrelated files are modified.",
         ),
+    )
+    return PlanDraftResult(True, plan=plan)
+
+
+def _is_test_name(relative: str) -> bool:
+    name = Path(relative).name
+    return name.startswith("test_") or name.endswith("_test.py")
+
+
+def _named_existing_py_files(request: str, root: Path) -> list[str]:
+    named: list[str] = []
+    for match in _PY_FILE.finditer(request):
+        rel = match.group(1).replace("\\", "/")
+        candidate = (root / rel)
+        try:
+            resolved = candidate.resolve()
+            resolved.relative_to(root.resolve())
+        except (OSError, ValueError):
+            continue
+        if candidate.is_file() and rel not in named:
+            named.append(rel)
+    return named
+
+
+def _locate_test_for(root: Path, impl_rel: str, named: list[str]) -> str | None:
+    """Find the ONE test that covers impl_rel, or None (refuse rather than
+    guess). Signals, strongest first: a test explicitly named in the
+    request; the test_<stem>.py / <stem>_test.py convention; a test file
+    importing the module. Ambiguity returns None."""
+    explicit_tests = [rel for rel in named if _is_test_name(rel)]
+    if len(explicit_tests) == 1:
+        return explicit_tests[0]
+    if len(explicit_tests) > 1:
+        return None
+
+    stem = Path(impl_rel).stem
+    convention = {f"test_{stem}.py", f"{stem}_test.py"}
+    by_convention = sorted(
+        p.relative_to(root).as_posix()
+        for p in root.rglob("*.py")
+        if p.name in convention and "__pycache__" not in p.parts
+    )
+    if len(by_convention) == 1:
+        return by_convention[0]
+    if len(by_convention) > 1:
+        return None
+
+    module = impl_rel[:-3].replace("/", ".")
+    importers: list[str] = []
+    for path in root.rglob("*.py"):
+        if not _is_test_name(path.relative_to(root).as_posix()) or "__pycache__" in path.parts:
+            continue
+        try:
+            text = path.read_text(encoding="utf-8")
+        except OSError:
+            continue
+        if re.search(rf"\b(import|from)\s+{re.escape(module)}\b", text) or \
+                re.search(rf"\b(import|from)\s+{re.escape(stem)}\b", text):
+            importers.append(path.relative_to(root).as_posix())
+    return importers[0] if len(importers) == 1 else None
+
+
+def draft_edit_plan(request: str, project_root: Path) -> PlanDraftResult:
+    """Draft a bounded EDIT plan when the request names exactly one
+    existing non-test Python file whose covering test can be located.
+
+    The human reviews the drafted files before approval, so heuristic
+    drafting is safe: this never writes and refuses rather than guessing
+    when the target or its test is ambiguous.
+    """
+    root = project_root
+    if not root.is_dir():
+        return PlanDraftResult(False, "project_root_missing")
+    named = _named_existing_py_files(request, root)
+    impls = [rel for rel in named if not _is_test_name(rel)]
+    if len(set(impls)) != 1:
+        return PlanDraftResult(False, "edit_plan_needs_one_named_existing_file")
+    impl_rel = impls[0]
+    test_rel = _locate_test_for(root, impl_rel, named)
+    if test_rel is None:
+        return PlanDraftResult(False, "edit_plan_test_not_found")
+    if test_rel == impl_rel:
+        return PlanDraftResult(False, "edit_plan_needs_a_distinct_test")
+    plan = TaskPlan(
+        title=f"Edit {Path(impl_rel).name}",
+        summary=f"Apply the requested change to {impl_rel} and verify it with {test_rel}.",
+        files=(impl_rel, test_rel),
+        api_contract=("Preserve the existing public interface unless the request requires a change.",),
+        acceptance=(f"{test_rel} passes.", "No unrelated files are modified."),
     )
     return PlanDraftResult(True, plan=plan)
 
