@@ -10,6 +10,7 @@ class TaskComposerController extends ChangeNotifier {
 
   bool _loading = false;
   bool _submitting = false;
+  bool _approving = false;
   String? _error;
   List<EngineProject> _projects = const [];
   List<EngineModelProfile> _models = const [];
@@ -23,6 +24,7 @@ class TaskComposerController extends ChangeNotifier {
 
   bool get loading => _loading;
   bool get submitting => _submitting;
+  bool get approving => _approving;
   String? get error => _error;
   List<EngineProject> get projects => _projects;
   List<EngineModelProfile> get models => _models;
@@ -37,9 +39,11 @@ class TaskComposerController extends ChangeNotifier {
   String get selectedMode => _selectedMode;
   String get requestText => _requestText;
   EngineTaskStatus? get lastSubmissionResult => _lastSubmissionResult;
+  EngineTaskStatus? get activeTaskStatus => _lastSubmissionResult;
 
   bool get isCloudBuilderSelected =>
-      _selectedBuilderModel?.isCloud == true;
+      _selectedBuilderModel?.isCloud == true ||
+      _selectedBuilderModel?.supervisedTestingOnly == true;
 
   bool get isAutopilotBlockedByCloud =>
       _selectedMode == 'local_autopilot' && isCloudBuilderSelected;
@@ -48,13 +52,20 @@ class TaskComposerController extends ChangeNotifier {
       ? 'Local Autopilot is disabled when using a cloud builder model (supervised testing).'
       : null;
 
+  bool get isWaitingForApproval =>
+      _lastSubmissionResult?.status == 'waiting_for_approval';
+
+  bool get showCloudApprovalWarning =>
+      isWaitingForApproval && isCloudBuilderSelected;
+
   bool get isValid =>
       _selectedProject != null &&
       _selectedChatModel != null &&
       _selectedBuilderModel != null &&
       _requestText.trim().isNotEmpty &&
       !isAutopilotBlockedByCloud &&
-      !_submitting;
+      !_submitting &&
+      !_approving;
 
   Future<void> load() async {
     _loading = true;
@@ -136,6 +147,46 @@ class TaskComposerController extends ChangeNotifier {
     } catch (e) {
       _submitting = false;
       _error = 'Task submission failed: $e';
+      notifyListeners();
+      return null;
+    }
+  }
+
+  Future<EngineTaskStatus?> refreshTaskStatus() async {
+    final currentId = _lastSubmissionResult?.taskId;
+    if (currentId == null || currentId.isEmpty) return null;
+
+    try {
+      final updatedStatus = await client.getTask(currentId);
+      _lastSubmissionResult = updatedStatus;
+      notifyListeners();
+      return updatedStatus;
+    } catch (e) {
+      _error = 'Failed to refresh task status: $e';
+      notifyListeners();
+      return null;
+    }
+  }
+
+  Future<EngineTaskStatus?> approveActiveTask() async {
+    final currentId = _lastSubmissionResult?.taskId;
+    if (currentId == null || currentId.isEmpty || !isWaitingForApproval) {
+      return null;
+    }
+
+    _approving = true;
+    _error = null;
+    notifyListeners();
+
+    try {
+      final result = await client.approveTask(currentId);
+      _lastSubmissionResult = result;
+      _approving = false;
+      notifyListeners();
+      return result;
+    } catch (e) {
+      _approving = false;
+      _error = 'Task approval failed: $e';
       notifyListeners();
       return null;
     }

@@ -24,7 +24,7 @@ class FakeHttpClient extends http.BaseClient {
 }
 
 void main() {
-  group('TaskComposerController', () {
+  group('TaskComposerController & Approval Flow', () {
     test('load() fetches projects and model profiles and sets defaults', () async {
       final fakeClient = FakeHttpClient((request) async {
         if (request.url.path.endsWith('/projects')) {
@@ -56,7 +56,7 @@ void main() {
                 {
                   'name': 'claude-3-7-sonnet',
                   'provider': 'anthropic',
-                  'roles': ['planner'],
+                  'roles': ['planner', 'builder'],
                   'available': true,
                   'supervised_testing_only': true,
                   'future_local_target': false,
@@ -124,17 +124,22 @@ void main() {
       expect(result, isNull);
     });
 
-    test('submitTask() creates valid payload and handles 202 Accepted', () async {
-      late http.BaseRequest capturedRequest;
-      late String capturedBody;
-
+    test('submitTask() creates valid payload and DOES NOT automatically approve', () async {
+      final requestedUrls = <String>[];
       final fakeClient = FakeHttpClient((request) async {
-        capturedRequest = request;
-        if (request is http.Request) {
-          capturedBody = request.body;
-        }
+        requestedUrls.add(request.url.path);
         return http.Response(
-          jsonEncode({'task_id': 'task-101', 'status': 'accepted'}),
+          jsonEncode({
+            'task_id': 'task-101',
+            'status': 'waiting_for_approval',
+            'events': [
+              {
+                'sequence': 1,
+                'kind': 'proposal_ready',
+                'detail': 'Proposal generated and waiting for approval',
+              }
+            ]
+          }),
           202,
         );
       });
@@ -164,35 +169,46 @@ void main() {
       controller.selectMode('ask_before_changes');
       controller.updateRequestText('Fix tax calculation logic');
 
-      expect(controller.isValid, isTrue);
-
       final status = await controller.submitTask();
 
-      expect(capturedRequest.method, equals('POST'));
-      expect(capturedRequest.url.path, equals('/api/v1/tasks'));
-
-      final bodyJson = jsonDecode(capturedBody) as Map<String, dynamic>;
-      expect(bodyJson['request'], equals('Fix tax calculation logic'));
-      expect(bodyJson['project_root'], equals('C:/development/projects/billing'));
-      expect(bodyJson['mode'], equals('ask_before_changes'));
-      expect(bodyJson['chat_model'], equals('qwen2.5-coder:7b'));
-      expect(bodyJson['builder_model'], equals('qwen2.5-coder:7b'));
+      // Verify POST /api/v1/tasks was called, but /approve was NOT called automatically
+      expect(requestedUrls, contains('/api/v1/tasks'));
+      expect(requestedUrls.any((url) => url.contains('/approve')), isFalse);
 
       expect(status, isNotNull);
-      expect(status!.statusCode, equals(202));
-      expect(status.status, equals('accepted'));
-      expect(status.isBlocked, isFalse);
+      expect(status!.taskId, equals('task-101'));
+      expect(status.status, equals('waiting_for_approval'));
+      expect(controller.isWaitingForApproval, isTrue);
+      expect(controller.showCloudApprovalWarning, isFalse);
+      expect(status.events.length, equals(1));
+      expect(status.events.first.sequence, equals(1));
+      expect(status.events.first.kind, equals('proposal_ready'));
+      expect(status.events.first.detail, contains('waiting for approval'));
     });
 
-    test('submitTask() handles 409 Conflict structured blocked status', () async {
+    test('approveActiveTask() sends POST /api/v1/tasks/{id}/approve route and updates status', () async {
+      late http.BaseRequest approveRequest;
       final fakeClient = FakeHttpClient((request) async {
+        if (request.url.path.endsWith('/approve')) {
+          approveRequest = request;
+          return http.Response(
+            jsonEncode({
+              'task_id': 'task-101',
+              'status': 'running',
+              'events': [
+                {'sequence': 1, 'kind': 'proposal_ready', 'detail': 'Proposal generated'},
+                {'sequence': 2, 'kind': 'approved', 'detail': 'User approved handoff'},
+              ]
+            }),
+            202,
+          );
+        }
         return http.Response(
           jsonEncode({
-            'task_id': 'task-102',
-            'status': 'dispatch_busy',
-            'reason': 'Lock held by running background task',
+            'task_id': 'task-101',
+            'status': 'waiting_for_approval',
           }),
-          409,
+          202,
         );
       });
 
@@ -221,12 +237,62 @@ void main() {
       controller.selectMode('ask_before_changes');
       controller.updateRequestText('Fix bug');
 
-      final status = await controller.submitTask();
+      await controller.submitTask();
+      expect(controller.isWaitingForApproval, isTrue);
 
-      expect(status, isNotNull);
-      expect(status!.statusCode, equals(409));
-      expect(status.isBlocked, isTrue);
-      expect(status.reason, equals('Lock held by running background task'));
+      final approvedStatus = await controller.approveActiveTask();
+
+      expect(approveRequest.method, equals('POST'));
+      expect(approveRequest.url.path, equals('/api/v1/tasks/task-101/approve'));
+
+      expect(approvedStatus, isNotNull);
+      expect(approvedStatus!.status, equals('running'));
+      expect(controller.isWaitingForApproval, isFalse);
+      expect(approvedStatus.events.length, equals(2));
+      expect(approvedStatus.events[1].kind, equals('approved'));
+    });
+
+    test('cloud warning flag activates when waiting for approval with cloud builder model', () async {
+      final fakeClient = FakeHttpClient((request) async {
+        return http.Response(
+          jsonEncode({
+            'task_id': 'task-102',
+            'status': 'waiting_for_approval',
+          }),
+          202,
+        );
+      });
+
+      final engineClient = WiSenseEngineClient(client: fakeClient);
+      final controller = TaskComposerController(client: engineClient);
+
+      const cloudModel = EngineModelProfile(
+        name: 'claude-3-7-sonnet',
+        provider: 'anthropic',
+        roles: ['builder'],
+        available: true,
+        supervisedTestingOnly: true,
+        futureLocalTarget: false,
+      );
+
+      const project = EngineProject(
+        projectId: 'proj-1',
+        displayName: 'Billing',
+        root: 'C:/proj',
+        localAutopilotTrusted: false,
+      );
+
+      controller.selectProject(project);
+      controller.selectChatModel(cloudModel);
+      controller.selectBuilderModel(cloudModel);
+      controller.selectMode('ask_before_changes');
+      controller.updateRequestText('Audit security');
+
+      await controller.submitTask();
+
+      expect(controller.isWaitingForApproval, isTrue);
+      expect(controller.isCloudBuilderSelected, isTrue);
+      expect(controller.showCloudApprovalWarning, isTrue);
     });
   });
 }

@@ -97,6 +97,19 @@ class WiSenseEngineClient {
     return EngineTaskStatus.fromJson(body, statusCode: response.statusCode);
   }
 
+  Future<EngineTaskStatus> approveTask(String taskId) async {
+    final response = await _client.post(
+      _endpoint('/api/v1/tasks/$taskId/approve'),
+      headers: await _headers(),
+    );
+    final body = _body(response);
+    if (response.statusCode == 202) {
+      return EngineTaskStatus.fromJson(body, statusCode: response.statusCode);
+    }
+    _requireSuccess(response, body, 'Approve task');
+    return EngineTaskStatus.fromJson(body, statusCode: response.statusCode);
+  }
+
   Uri _endpoint(String path) =>
       _baseUri.resolve(path.startsWith('/') ? path.substring(1) : path);
 

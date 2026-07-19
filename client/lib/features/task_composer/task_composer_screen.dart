@@ -60,7 +60,9 @@ class _TaskComposerScreenState extends State<TaskComposerScreen> {
         actions: [
           IconButton(
             icon: const Icon(Icons.refresh),
-            onPressed: controller.submitting ? null : controller.load,
+            onPressed: controller.submitting || controller.approving
+                ? null
+                : controller.load,
             tooltip: 'Reload Projects & Models',
           ),
         ],
@@ -201,7 +203,7 @@ class _TaskComposerScreenState extends State<TaskComposerScreen> {
                         border: OutlineInputBorder(),
                         contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 14),
                       ),
-                      items: controller.chatModels.map((model) {
+                      items: controller.models.map((model) {
                         return DropdownMenuItem<EngineModelProfile>(
                           value: model,
                           child: Text(_formatModelName(model)),
@@ -229,7 +231,7 @@ class _TaskComposerScreenState extends State<TaskComposerScreen> {
                         border: OutlineInputBorder(),
                         contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 14),
                       ),
-                      items: controller.builderModels.map((model) {
+                      items: controller.models.map((model) {
                         return DropdownMenuItem<EngineModelProfile>(
                           value: model,
                           child: Text(_formatModelName(model)),
@@ -264,10 +266,10 @@ class _TaskComposerScreenState extends State<TaskComposerScreen> {
             ),
           ),
 
-          // Result Display Section
-          if (controller.lastSubmissionResult != null) ...[
+          // Result Display Section & Task Timeline
+          if (controller.activeTaskStatus != null) ...[
             const SizedBox(height: 24),
-            _buildResultCard(context, controller.lastSubmissionResult!),
+            _buildTaskPanel(context, controller, controller.activeTaskStatus!),
           ],
         ],
       ),
@@ -275,21 +277,29 @@ class _TaskComposerScreenState extends State<TaskComposerScreen> {
   }
 
   String _formatModelName(EngineModelProfile model) {
-    if (model.isCloud && model.supervisedTestingOnly) {
-      return '${model.name} (Cloud - supervised testing)';
+    if (model.supervisedTestingOnly) {
+      return '${model.name} (Cloud — supervised testing)';
     } else if (model.futureLocalTarget) {
       return '${model.name} (Future local target)';
     }
     return model.name;
   }
 
-  Widget _buildResultCard(BuildContext context, EngineTaskStatus result) {
+  Widget _buildTaskPanel(
+    BuildContext context,
+    TaskComposerController controller,
+    EngineTaskStatus result,
+  ) {
     final isBlocked = result.isBlocked;
-    final color = isBlocked ? Colors.orange : Colors.green;
-    final icon = isBlocked ? Icons.block : Icons.check_circle_outline;
+    final isWaiting = controller.isWaitingForApproval;
+    final color = isBlocked
+        ? Colors.orange
+        : (isWaiting ? Colors.blue : Colors.green);
 
     return Card(
-      color: isBlocked ? Colors.orange.shade50 : Colors.green.shade50,
+      color: isBlocked
+          ? Colors.orange.shade50
+          : (isWaiting ? Colors.blue.shade50 : Colors.green.shade50),
       shape: RoundedRectangleBorder(
         side: BorderSide(color: color, width: 1.5),
         borderRadius: BorderRadius.circular(8),
@@ -300,15 +310,32 @@ class _TaskComposerScreenState extends State<TaskComposerScreen> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                Icon(icon, color: color),
-                const SizedBox(width: 8),
-                Text(
-                  isBlocked ? 'Task Blocked (${result.statusCode})' : 'Task Accepted (${result.statusCode})',
-                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                        color: color.shade900,
-                        fontWeight: FontWeight.bold,
-                      ),
+                Row(
+                  children: [
+                    Icon(
+                      isBlocked
+                          ? Icons.block
+                          : (isWaiting ? Icons.hourglass_top : Icons.check_circle_outline),
+                      color: color,
+                    ),
+                    const SizedBox(width: 8),
+                    Text(
+                      isBlocked
+                          ? 'Task Blocked (${result.statusCode})'
+                          : 'Task Status (${result.statusCode})',
+                      style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                            color: color.shade900,
+                            fontWeight: FontWeight.bold,
+                          ),
+                    ),
+                  ],
+                ),
+                OutlinedButton.icon(
+                  onPressed: controller.approving ? null : controller.refreshTaskStatus,
+                  icon: const Icon(Icons.refresh, size: 16),
+                  label: const Text('Refresh Task Status'),
                 ),
               ],
             ),
@@ -322,8 +349,151 @@ class _TaskComposerScreenState extends State<TaskComposerScreen> {
                 style: TextStyle(color: color.shade900, fontWeight: FontWeight.w600),
               ),
             ],
+
+            // Approval Handoff Section
+            if (isWaiting) ...[
+              const SizedBox(height: 16),
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: Colors.blue.shade100,
+                  borderRadius: BorderRadius.circular(6),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        const Icon(Icons.verified_user, color: Colors.blue),
+                        const SizedBox(width: 8),
+                        Text(
+                          'Explicit Approval Required',
+                          style: TextStyle(
+                            fontWeight: FontWeight.bold,
+                            color: Colors.blue.shade900,
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      'Approval is required before the Engine contacts a model or modifies project files.',
+                      style: TextStyle(color: Colors.blue.shade900),
+                    ),
+                    if (controller.showCloudApprovalWarning) ...[
+                      const SizedBox(height: 8),
+                      Container(
+                        padding: const EdgeInsets.all(8),
+                        decoration: BoxDecoration(
+                          color: Colors.amber.shade100,
+                          borderRadius: BorderRadius.circular(4),
+                          border: Border.all(color: Colors.amber.shade600),
+                        ),
+                        child: Text(
+                          'Cloud Profile Warning: Approving this task will execute requests using the cloud builder profile "${controller.selectedBuilderModel?.name}" (supervised testing).',
+                          style: TextStyle(
+                            color: Colors.amber.shade900,
+                            fontWeight: FontWeight.bold,
+                            fontSize: 12,
+                          ),
+                        ),
+                      ),
+                    ],
+                    const SizedBox(height: 12),
+                    SizedBox(
+                      width: double.infinity,
+                      child: ElevatedButton.icon(
+                        onPressed: controller.approving
+                            ? null
+                            : controller.approveActiveTask,
+                        icon: controller.approving
+                            ? const SizedBox(
+                                width: 16,
+                                height: 16,
+                                child: CircularProgressIndicator(strokeWidth: 2),
+                              )
+                            : const Icon(Icons.check_circle),
+                        label: Text(
+                          controller.approving
+                              ? 'Approving Engine Handoff...'
+                              : 'Approve Engine Handoff',
+                        ),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: Colors.blue.shade700,
+                          foregroundColor: Colors.white,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+
+            // Task Events Timeline
+            const SizedBox(height: 16),
+            Text(
+              'Task Event Timeline',
+              style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                    fontWeight: FontWeight.bold,
+                  ),
+            ),
+            const SizedBox(height: 8),
+            if (result.events.isEmpty)
+              const Text('No events recorded yet.')
+            else
+              ...result.events.map((event) => _buildEventTile(context, event)),
           ],
         ),
+      ),
+    );
+  }
+
+  Widget _buildEventTile(BuildContext context, EngineTaskEvent event) {
+    return Container(
+      margin: const EdgeInsets.only(bottom: 6),
+      padding: const EdgeInsets.all(8),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(4),
+        border: Border.all(color: Colors.grey.shade300),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          CircleAvatar(
+            radius: 12,
+            backgroundColor: Colors.deepPurple.shade100,
+            child: Text(
+              '${event.sequence}',
+              style: TextStyle(fontSize: 10, color: Colors.deepPurple.shade900),
+            ),
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                      decoration: BoxDecoration(
+                        color: Colors.grey.shade200,
+                        borderRadius: BorderRadius.circular(4),
+                      ),
+                      child: Text(
+                        event.kind,
+                        style: const TextStyle(fontSize: 10, fontWeight: FontWeight.bold),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 2),
+                Text(event.detail, style: const TextStyle(fontSize: 12)),
+              ],
+            ),
+          ),
+        ],
       ),
     );
   }
