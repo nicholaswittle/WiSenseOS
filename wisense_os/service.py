@@ -32,12 +32,12 @@ class TaskCoordinator:
             return record
         initial_status = (
             TaskStatus.WAITING_FOR_APPROVAL
-            if request.mode is RunMode.ASK_BEFORE_CHANGES
+            if request.mode == RunMode.ASK_BEFORE_CHANGES
             else TaskStatus.ACCEPTED
         )
         record = TaskRecord(task_id, request, initial_status)
         self.store.create(record)
-        if initial_status is TaskStatus.WAITING_FOR_APPROVAL:
+        if initial_status == TaskStatus.WAITING_FOR_APPROVAL:
             self.store.append_event(
                 task_id,
                 "awaiting_approval",
@@ -52,7 +52,7 @@ class TaskCoordinator:
             record = self.store.get(task_id)
             if record is None:
                 raise KeyError(f"unknown task: {task_id}")
-            if record.status is not TaskStatus.WAITING_FOR_APPROVAL:
+            if record.status != TaskStatus.WAITING_FOR_APPROVAL:
                 raise ValueError(f"task is not awaiting approval: {record.status.value}")
             self.store.update_status(task_id, TaskStatus.ACCEPTED)
             self.store.append_event(task_id, "approved", "user approved Engine handoff")
@@ -64,7 +64,7 @@ class TaskCoordinator:
         record = self.store.get(task_id)
         if record is None:
             raise KeyError(f"unknown task: {task_id}")
-        if record.status is not TaskStatus.ACCEPTED:
+        if record.status != TaskStatus.ACCEPTED:
             return record
         with self._execution_lock:
             # A second API worker may have waited on the lock while the first
@@ -72,9 +72,9 @@ class TaskCoordinator:
             record = self.store.get(task_id)
             if record is None:
                 raise KeyError(f"unknown task: {task_id}")
-            if record.status is not TaskStatus.ACCEPTED:
+            if record.status != TaskStatus.ACCEPTED:
                 return record
-            if record.request.mode is RunMode.TALK_ONLY:
+            if record.request.mode == RunMode.TALK_ONLY:
                 self.store.update_status(task_id, TaskStatus.COMPLETED, "talk-only task is not delegated to a builder")
                 self.store.append_event(task_id, "completed", "talk-only policy prevented a builder call")
                 return self.store.get(task_id)  # type: ignore[return-value]
