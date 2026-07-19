@@ -203,7 +203,7 @@ class _TaskComposerScreenState extends State<TaskComposerScreen> {
                         border: OutlineInputBorder(),
                         contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 14),
                       ),
-                      items: controller.models.map((model) {
+                      items: controller.chatModels.map((model) {
                         return DropdownMenuItem<EngineModelProfile>(
                           value: model,
                           child: Text(_formatModelName(model)),
@@ -231,7 +231,7 @@ class _TaskComposerScreenState extends State<TaskComposerScreen> {
                         border: OutlineInputBorder(),
                         contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 14),
                       ),
-                      items: controller.models.map((model) {
+                      items: controller.builderModels.map((model) {
                         return DropdownMenuItem<EngineModelProfile>(
                           value: model,
                           child: Text(_formatModelName(model)),

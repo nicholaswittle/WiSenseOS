@@ -186,7 +186,7 @@ void main() {
       expect(status.events.first.detail, contains('waiting for approval'));
     });
 
-    test('approveActiveTask() sends POST /api/v1/tasks/{id}/approve route and updates status', () async {
+    test('approveActiveTask() sends POST then reloads the durable event timeline', () async {
       late http.BaseRequest approveRequest;
       final fakeClient = FakeHttpClient((request) async {
         if (request.url.path.endsWith('/approve')) {
@@ -195,12 +195,21 @@ void main() {
             jsonEncode({
               'task_id': 'task-101',
               'status': 'running',
+            }),
+            202,
+          );
+        }
+        if (request.url.path.endsWith('/tasks/task-101')) {
+          return http.Response(
+            jsonEncode({
+              'task_id': 'task-101',
+              'status': 'running',
               'events': [
                 {'sequence': 1, 'kind': 'proposal_ready', 'detail': 'Proposal generated'},
                 {'sequence': 2, 'kind': 'approved', 'detail': 'User approved handoff'},
-              ]
+              ],
             }),
-            202,
+            200,
           );
         }
         return http.Response(

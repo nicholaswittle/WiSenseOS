@@ -180,10 +180,12 @@ class TaskComposerController extends ChangeNotifier {
 
     try {
       final result = await client.approveTask(currentId);
-      _lastSubmissionResult = result;
+      // The approval response only confirms the handoff. The durable task
+      // endpoint owns the complete event timeline, so reload it immediately.
+      _lastSubmissionResult = await client.getTask(result.taskId);
       _approving = false;
       notifyListeners();
-      return result;
+      return _lastSubmissionResult;
     } catch (e) {
       _approving = false;
       _error = 'Task approval failed: $e';
