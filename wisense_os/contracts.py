@@ -28,6 +28,22 @@ class TaskStatus(StrEnum):
 
 
 @dataclass(frozen=True)
+class ProjectRecord:
+    project_id: str
+    display_name: str
+    root: str
+    local_autopilot_trusted: bool
+
+    def to_json(self) -> dict[str, Any]:
+        return {
+            "project_id": self.project_id,
+            "display_name": self.display_name,
+            "root": self.root,
+            "local_autopilot_trusted": self.local_autopilot_trusted,
+        }
+
+
+@dataclass(frozen=True)
 class ModelProfile:
     name: str
     provider: ProviderKind

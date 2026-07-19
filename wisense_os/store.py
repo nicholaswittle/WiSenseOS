@@ -5,9 +5,10 @@ from __future__ import annotations
 
 import json
 import sqlite3
+from uuid import uuid4
 from pathlib import Path
 
-from .contracts import RunMode, TaskEvent, TaskRecord, TaskRequest, TaskStatus
+from .contracts import ProjectRecord, RunMode, TaskEvent, TaskRecord, TaskRequest, TaskStatus
 
 
 class TaskStore:
@@ -41,6 +42,50 @@ class TaskStore:
                     PRIMARY KEY (task_id, sequence)
                 )"""
             )
+            db.execute(
+                """CREATE TABLE IF NOT EXISTS projects (
+                    project_id TEXT PRIMARY KEY,
+                    display_name TEXT NOT NULL,
+                    root TEXT NOT NULL UNIQUE,
+                    local_autopilot_trusted INTEGER NOT NULL DEFAULT 0
+                )"""
+            )
+
+    def register_project(
+        self,
+        *,
+        display_name: str,
+        root: str,
+        local_autopilot_trusted: bool = False,
+    ) -> ProjectRecord:
+        clean_name = display_name.strip()
+        if not clean_name:
+            raise ValueError("display_name is required")
+        candidate = Path(root).expanduser().resolve()
+        if not candidate.is_dir():
+            raise ValueError("root must be an existing directory")
+        normalized_root = str(candidate)
+        with self._connect() as db:
+            existing = db.execute("SELECT * FROM projects WHERE root = ?", (normalized_root,)).fetchone()
+            if existing is not None:
+                return self._project_from_row(existing)
+            record = ProjectRecord(
+                project_id=str(uuid4()),
+                display_name=clean_name,
+                root=normalized_root,
+                local_autopilot_trusted=local_autopilot_trusted,
+            )
+            db.execute(
+                """INSERT INTO projects(project_id, display_name, root, local_autopilot_trusted)
+                   VALUES (?, ?, ?, ?)""",
+                (record.project_id, record.display_name, record.root, int(record.local_autopilot_trusted)),
+            )
+        return record
+
+    def list_projects(self) -> list[ProjectRecord]:
+        with self._connect() as db:
+            rows = db.execute("SELECT * FROM projects ORDER BY display_name COLLATE NOCASE").fetchall()
+        return [self._project_from_row(row) for row in rows]
 
     def create(self, record: TaskRecord) -> None:
         with self._connect() as db:
@@ -87,6 +132,15 @@ class TaskStore:
             mode=RunMode(data["mode"]), chat_model=data["chat_model"], builder_model=data["builder_model"],
         )
         return TaskRecord(task_id=row["task_id"], request=request, status=TaskStatus(row["status"]), reason=row["reason"])
+
+    @staticmethod
+    def _project_from_row(row: sqlite3.Row) -> ProjectRecord:
+        return ProjectRecord(
+            project_id=row["project_id"],
+            display_name=row["display_name"],
+            root=row["root"],
+            local_autopilot_trusted=bool(row["local_autopilot_trusted"]),
+        )
 
     def events(self, task_id: str) -> list[TaskEvent]:
         with self._connect() as db:

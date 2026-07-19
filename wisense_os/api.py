@@ -21,6 +21,23 @@ def create_app(coordinator: TaskCoordinator) -> Flask:
     def models():
         return jsonify({"models": [profile.to_json() for profile in coordinator.models.profiles()]})
 
+    @app.get("/api/v1/projects")
+    def projects():
+        return jsonify({"projects": [project.to_json() for project in coordinator.store.list_projects()]})
+
+    @app.post("/api/v1/projects")
+    def register_project():
+        data = request.get_json(force=True)
+        try:
+            project = coordinator.store.register_project(
+                display_name=str(data.get("display_name", "")),
+                root=str(data.get("root", "")),
+                local_autopilot_trusted=data.get("local_autopilot_trusted") is True,
+            )
+        except ValueError as exc:
+            return jsonify({"error": str(exc)}), 400
+        return jsonify(project.to_json()), 201
+
     @app.get("/api/v1/tasks")
     def task_history():
         raw_limit = request.args.get("limit", "50")

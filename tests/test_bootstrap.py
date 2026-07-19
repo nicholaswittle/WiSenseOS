@@ -87,6 +87,34 @@ def test_task_history_rejects_invalid_limit(tmp_path: Path) -> None:
     assert response.get_json() == {"error": "limit must be an integer from 1 to 200"}
 
 
+def test_project_registry_is_durable_and_deduplicates_root(tmp_path: Path) -> None:
+    app = create_default_app(tmp_path / "state")
+    client = app.test_client()
+    root = tmp_path / "demo_project"
+    root.mkdir()
+    payload = {"display_name": "Demo", "root": str(root), "local_autopilot_trusted": False}
+
+    first = client.post("/api/v1/projects", json=payload)
+    second = client.post("/api/v1/projects", json=payload)
+    listed = client.get("/api/v1/projects")
+
+    assert first.status_code == 201
+    assert second.status_code == 201
+    assert first.get_json()["project_id"] == second.get_json()["project_id"]
+    assert listed.get_json()["projects"] == [first.get_json()]
+
+
+def test_project_registry_rejects_missing_folder(tmp_path: Path) -> None:
+    app = create_default_app(tmp_path / "state")
+
+    response = app.test_client().post(
+        "/api/v1/projects", json={"display_name": "Missing", "root": str(tmp_path / "missing")}
+    )
+
+    assert response.status_code == 400
+    assert response.get_json() == {"error": "root must be an existing directory"}
+
+
 def test_construction_never_invokes_bridge(monkeypatch, tmp_path: Path) -> None:
     def bomb(*_args, **_kwargs):
         raise AssertionError("app construction must not invoke the Work Center bridge")
