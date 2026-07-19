@@ -8,21 +8,27 @@ Write-Host "========================================" -ForegroundColor Cyan
 Write-Host "         WiSense OS Launcher            " -ForegroundColor Cyan
 Write-Host "========================================" -ForegroundColor Cyan
 
-# Check if Engine is running on port 5050
 $EnginePort = 5050
-$IsEngineRunning = $false
 
-try {
-    $Tcp = New-Object System.Net.Sockets.TcpClient
-    $Tcp.Connect("127.0.0.1", $EnginePort)
-    $Tcp.Close()
-    $IsEngineRunning = $true
-} catch {
-    $IsEngineRunning = $false
+function Test-EngineFullHealth {
+    try {
+        $response = Invoke-WebRequest -Uri "http://127.0.0.1:$EnginePort/api/v1/telemetry" -UseBasicParsing -TimeoutSec 2
+        return $response.StatusCode -eq 200
+    } catch {
+        return $false
+    }
 }
 
-if ($IsEngineRunning) {
-    Write-Host "[+] WiSense Engine is already active on http://127.0.0.1:$EnginePort" -ForegroundColor Green
+# Stop stale engine if running without latest AIOS endpoints
+if (-not (Test-EngineFullHealth)) {
+    Get-NetTCPConnection -LocalPort $EnginePort -ErrorAction SilentlyContinue | ForEach-Object {
+        Stop-Process -Id $_.OwningProcess -Force -ErrorAction SilentlyContinue
+    }
+    Start-Sleep -Milliseconds 500
+}
+
+if (Test-EngineFullHealth) {
+    Write-Host "[+] WiSense Engine is active on http://127.0.0.1:$EnginePort" -ForegroundColor Green
 } else {
     Write-Host "[i] Starting local WiSense Engine on http://127.0.0.1:$EnginePort..." -ForegroundColor Yellow
     $VenvPython = Join-Path $ScriptDir ".venv\Scripts\python.exe"
@@ -37,20 +43,11 @@ if ($IsEngineRunning) {
     Write-Host "[+] WiSense Engine background process launched." -ForegroundColor Green
 }
 
-function Test-EngineHealth {
-    try {
-        $response = Invoke-WebRequest -Uri "http://127.0.0.1:$EnginePort/api/v1/health" -UseBasicParsing -TimeoutSec 2
-        return $response.StatusCode -eq 200
-    } catch {
-        return $false
-    }
-}
-
 Write-Host "[i] Waiting for Engine health..." -ForegroundColor Yellow
 $deadline = (Get-Date).AddSeconds(30)
 $healthy = $false
 while ((Get-Date) -lt $deadline) {
-    if (Test-EngineHealth) {
+    if (Test-EngineFullHealth) {
         $healthy = $true
         break
     }
