@@ -63,6 +63,7 @@ def create_default_app(
     coordinator = TaskCoordinator(
         store=store,
         models=models,
-        executor=PlanBoundPatchExecutor(model_adapter or OllamaChatAdapter(), PytestRunner()),
+        executor=PlanBoundPatchExecutor(
+            model_adapter or OllamaChatAdapter(), PytestRunner(), commit_on_success=True),
     )
     return create_app(coordinator, auth_token=auth_token)

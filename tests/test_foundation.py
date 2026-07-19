@@ -18,10 +18,16 @@ class FakeExecutor:
         # Typed pending signal -- the executor declares it explicitly; the
         # coordinator never guesses from reply text.
         self.pending_input = False
+        self.committed = False
+        self.commit_evidence = ""
 
     def run(self, request: TaskRequest, _plan: TaskPlan) -> dict[str, object]:
         self.calls.append(request)
-        return {"reply": self.reply, "pending_input": self.pending_input}
+        result: dict[str, object] = {"reply": self.reply, "pending_input": self.pending_input}
+        if self.committed:
+            result["committed"] = True
+            result["commit"] = self.commit_evidence
+        return result
 
     def continue_conversation(self, request: TaskRequest, message: str) -> dict[str, object]:
         self.calls.append(request)
@@ -204,6 +210,22 @@ def test_canceling_provider_follow_up_releases_the_next_handoff(tmp_path: Path) 
     assert canceled.status == TaskStatus.CANCELED
     assert approved_second.status == TaskStatus.ACCEPTED
     assert coordinator.store.events(first.task_id)[-1].kind == "canceled"
+
+
+def test_a_committed_result_emits_a_committed_event(tmp_path: Path) -> None:
+    coordinator, executor = make_coordinator(tmp_path)
+    executor.reply = "committed (commit abc1234): reviewed files changed and named tests passed"
+    executor.committed = True
+    executor.commit_evidence = "commit abc1234"
+    waiting = coordinator.submit(request())
+    review_plan(coordinator, waiting.task_id)
+    coordinator.approve(waiting.task_id)
+    done = coordinator.execute(waiting.task_id)
+
+    assert done.status == TaskStatus.COMPLETED
+    events = coordinator.store.events(waiting.task_id)
+    committed = [event for event in events if event.kind == "committed"]
+    assert len(committed) == 1 and "abc1234" in committed[0].detail
 
 
 def test_pending_state_is_typed_not_inferred_from_reply_text(tmp_path: Path) -> None:

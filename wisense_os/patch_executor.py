@@ -27,6 +27,41 @@ def _clear_pycache(project_root: Path) -> None:
         shutil.rmtree(cache_dir, ignore_errors=True)
 
 
+def _git_commit_scoped(
+    project_root: Path, files: tuple[str, ...], message: str
+) -> tuple[bool, str]:
+    """Commit ONLY the reviewed files, path-scoped, never sweeping any
+    unrelated staged or working-tree change. Returns (committed,
+    evidence). Never raises for ordinary environment failures (no git, no
+    identity, hooks, a non-repo directory): the caller keeps the
+    validated files on disk and reports them as uncommitted -- verified
+    work is never thrown away by a commit problem."""
+    rel = list(files)
+    try:
+        add = subprocess.run(
+            ["git", "add", "--", *rel], cwd=project_root,
+            capture_output=True, text=True)
+        if add.returncode != 0:
+            return False, f"git add failed: {(add.stdout + add.stderr).strip()[-300:]}"
+        diff = subprocess.run(
+            ["git", "diff", "--cached", "--quiet", "--", *rel], cwd=project_root)
+        if diff.returncode == 0:
+            return False, "no staged change for the reviewed files"
+        if diff.returncode > 1:
+            return False, "git diff --cached failed"
+        commit = subprocess.run(
+            ["git", "commit", "-m", message, "--", *rel], cwd=project_root,
+            capture_output=True, text=True)
+        if commit.returncode != 0:
+            return False, f"git commit failed: {(commit.stdout + commit.stderr).strip()[-300:]}"
+        head = subprocess.run(
+            ["git", "rev-parse", "--short", "HEAD"], cwd=project_root,
+            capture_output=True, text=True)
+        return True, f"commit {head.stdout.strip()}"
+    except OSError as exc:
+        return False, f"git unavailable: {exc}"
+
+
 @dataclass(frozen=True)
 class PytestRunner:
     timeout_seconds: float = 120.0
@@ -60,6 +95,36 @@ class PytestRunner:
 class PlanBoundPatchExecutor:
     model: ChatModel
     test_runner: TestRunner
+    # Off by default so unit tests observe the pure validate-only result;
+    # the launcher enables it so a validated change lands as a scoped,
+    # path-limited commit with evidence.
+    commit_on_success: bool = False
+
+    def _success(
+        self, root: Path, plan: TaskPlan, test_targets: tuple[str, ...], *,
+        repaired: bool, repair_detail: str | None = None,
+    ) -> dict[str, object]:
+        suffix = " after one repair" if repaired else ""
+        result: dict[str, object] = {
+            "reply": f"validated, uncommitted: reviewed files changed and named tests passed{suffix}",
+            "changed_files": list(plan.files),
+            "verification": (
+                "named tests passed"
+                f"{' after one repair' if repaired else ' on first attempt'}: "
+                f"{', '.join(test_targets)}"
+            ),
+        }
+        if repaired and repair_detail is not None:
+            result["repair_evidence"] = repair_detail[-2_000:]
+        if self.commit_on_success:
+            committed, evidence = _git_commit_scoped(root, plan.files, f"wisense: {plan.title}")
+            result["committed"] = committed
+            result["commit"] = evidence
+            core = f"reviewed files changed and named tests passed{suffix}"
+            result["reply"] = (
+                f"committed ({evidence}): {core}" if committed
+                else f"validated, uncommitted ({evidence}): {core}")
+        return result
 
     def run(self, request: TaskRequest, plan: TaskPlan) -> dict[str, object]:
         root = Path(request.project_root)
@@ -83,11 +148,7 @@ class PlanBoundPatchExecutor:
             if "snapshot" in locals():
                 restore_snapshot(snapshot)
             return {"failed": True, "reason": f"native plan-bound execution stopped safely: {exc}"}
-        return {
-            "reply": "validated, uncommitted: reviewed files changed and named tests passed",
-            "changed_files": list(plan.files),
-            "verification": f"named tests passed on first attempt: {', '.join(test_targets)}",
-        }
+        return self._success(root, plan, test_targets, repaired=False)
 
     def _repair_once(
         self,
@@ -113,12 +174,7 @@ class PlanBoundPatchExecutor:
                 "failed": True,
                 "reason": f"reviewed test failed after one repair; restored files\n{repair_detail}",
             }
-        return {
-            "reply": "validated, uncommitted: reviewed files changed and named tests passed after one repair",
-            "changed_files": list(plan.files),
-            "verification": f"named tests passed after one repair: {', '.join(test_targets)}",
-            "repair_evidence": repair_detail[-2_000:],
-        }
+        return self._success(snapshot.root, plan, test_targets, repaired=True, repair_detail=repair_detail)
 
     def continue_conversation(self, request: TaskRequest, message: str) -> dict[str, object]:
         return {"blocked": True, "reason": "native patch execution has no conversational continuation"}

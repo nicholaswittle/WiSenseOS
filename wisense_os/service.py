@@ -152,6 +152,8 @@ class TaskCoordinator:
         verification = result.get("verification")
         if isinstance(verification, str) and verification:
             self.store.append_event(task_id, "verification", verification)
+        if result.get("committed") is True:
+            self.store.append_event(task_id, "committed", str(result.get("commit", "")))
         reply = str(result.get("reply", "engine returned no reply"))
         # Typed pending state, NEVER inferred from reply text. The executor
         # must explicitly declare that it needs another user turn; the
