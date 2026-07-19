@@ -22,7 +22,7 @@ try {
 }
 
 if ($IsEngineRunning) {
-    Write-Host "[✓] WiSense Engine is already active on http://127.0.0.1:$EnginePort" -ForegroundColor Green
+    Write-Host "[+] WiSense Engine is already active on http://127.0.0.1:$EnginePort" -ForegroundColor Green
 } else {
     Write-Host "[i] Starting local WiSense Engine on http://127.0.0.1:$EnginePort..." -ForegroundColor Yellow
     $VenvPython = Join-Path $ScriptDir ".venv\Scripts\python.exe"
@@ -34,7 +34,7 @@ if ($IsEngineRunning) {
     }
     
     Start-Process -FilePath $VenvPython -ArgumentList "$RunEngine" -WindowStyle Hidden
-    Write-Host "[✓] WiSense Engine background process launched." -ForegroundColor Green
+    Write-Host "[+] WiSense Engine background process launched." -ForegroundColor Green
 }
 
 function Test-EngineHealth {
@@ -46,7 +46,7 @@ function Test-EngineHealth {
     }
 }
 
-Write-Host "[i] Waiting for Engine health…" -ForegroundColor Yellow
+Write-Host "[i] Waiting for Engine health..." -ForegroundColor Yellow
 $deadline = (Get-Date).AddSeconds(30)
 $healthy = $false
 while ((Get-Date) -lt $deadline) {
@@ -61,7 +61,7 @@ if (-not $healthy) {
     Write-Host "[!] Engine did not become healthy within 30 seconds." -ForegroundColor Red
     exit 1
 }
-Write-Host "[✓] Engine health confirmed." -ForegroundColor Green
+Write-Host "[+] Engine health confirmed." -ForegroundColor Green
 
 # Launch Flutter Desktop Client
 $ClientDir = Join-Path $ScriptDir "client"
