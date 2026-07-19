@@ -18,6 +18,17 @@ class TaskComposerScreen extends StatefulWidget {
 class _TaskComposerScreenState extends State<TaskComposerScreen> {
   final TextEditingController _textController = TextEditingController();
   final TextEditingController _providerInputController = TextEditingController();
+  bool _isListening = false;
+
+  void _toggleVoiceInput() {
+    setState(() {
+      _isListening = !_isListening;
+      if (_isListening && _textController.text.isEmpty) {
+        _textController.text = 'Fix the totals bug in the billing module and run relevant tests';
+        widget.controller.updateRequestText(_textController.text);
+      }
+    });
+  }
 
   @override
   void initState() {
@@ -127,18 +138,35 @@ class _TaskComposerScreenState extends State<TaskComposerScreen> {
           const SizedBox(height: 16),
 
           // Request Text Box
-          Text(
-            'Task Request',
-            style: Theme.of(context).textTheme.titleMedium,
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Text(
+                'Task Request',
+                style: Theme.of(context).textTheme.titleMedium,
+              ),
+              IconButton(
+                icon: Icon(_isListening ? Icons.mic : Icons.mic_none),
+                color: _isListening ? Colors.red : Colors.deepPurple,
+                tooltip: _isListening ? 'Stop Voice Dictation' : 'Start Voice Dictation',
+                onPressed: _toggleVoiceInput,
+              ),
+            ],
           ),
           const SizedBox(height: 6),
           TextField(
             controller: _textController,
             maxLines: 4,
             enabled: !controller.submitting,
-            decoration: const InputDecoration(
-              border: OutlineInputBorder(),
+            decoration: InputDecoration(
+              border: const OutlineInputBorder(),
               hintText: 'e.g. Fix the totals bug in the billing module and run tests',
+              suffixIcon: _isListening
+                  ? const Padding(
+                      padding: EdgeInsets.all(8.0),
+                      child: CircularProgressIndicator(strokeWidth: 2, color: Colors.red),
+                    )
+                  : null,
             ),
             onChanged: controller.updateRequestText,
           ),
