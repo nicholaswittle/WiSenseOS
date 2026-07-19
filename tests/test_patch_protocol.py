@@ -57,10 +57,34 @@ def test_candidate_accepts_one_final_json_object_after_a_model_lead_in() -> None
     assert dict(candidate.files)["app.py"] == "after app"
 
 
+def test_candidate_accepts_exactly_labeled_source_blocks_for_reviewed_paths() -> None:
+    raw = """### `app.py`
+```python
+def app():
+    return 1
+```
+
+### `test_app.py`
+```python
+def test_app():
+    assert True
+```
+"""
+
+    candidate = parse_patch_candidate(raw, plan())
+
+    assert dict(candidate.files) == {
+        "app.py": "def app():\n    return 1",
+        "test_app.py": "def test_app():\n    assert True",
+    }
+
+
 @pytest.mark.parametrize("raw, error", [
     ("not json", "not valid JSON"),
     ("Here is the result:\n```json\n{}\n```", "not valid JSON"),
     (proposal({"path": "app.py", "content": "x"}, {"path": "test_app.py", "content": "x"}) + "\nextra prose", "not valid JSON"),
+    ("### `app.py`\n```python\nx\n```", "not valid JSON"),
+    ("### `app.py`\n```python\nx\n```\n### `test_app.py`\n```python\ny\n```\n```python\nz\n```", "not valid JSON"),
     (json.dumps({"files": [{"path": "app.py", "content": "x"}]}), "omits reviewed"),
     (json.dumps({"files": [{"path": "app.py", "content": "x"}, {"path": "test_app.py", "content": "x"}, {"path": "other.py", "content": "x"}]}), "unreviewed"),
     (json.dumps({"files": [{"path": "app.py", "content": "x"}, {"path": "app.py", "content": "x"}]}), "repeats"),

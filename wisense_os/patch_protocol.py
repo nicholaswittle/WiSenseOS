@@ -56,12 +56,47 @@ def _decode_final_json_object(raw: str) -> object:
         return payload
 
 
+def _decode_exact_labeled_fences(raw: str, plan: TaskPlan) -> object | None:
+    """Accept only one Markdown code block per exact reviewed path.
+
+    Some hosted models emit ordinary labeled source blocks despite a structured
+    response request. This fallback has no path discovery: every block must be
+    labeled with a reviewed path, and every reviewed path must appear once.
+    """
+    if not isinstance(raw, str):
+        return None
+    lines = raw.splitlines()
+    openings = [line for line in lines if re.fullmatch(r"[ \t]*```(?:python|py)[ \t]*", line, re.IGNORECASE)]
+    if len(openings) != len(plan.files):
+        return None
+    blocks: dict[str, str] = {}
+    for index, line in enumerate(lines):
+        label = re.sub(r"^#+[ \t]*", "", line.strip()).strip("`* ")
+        if label.lower().startswith("file:"):
+            label = label[5:].strip().strip("`* ")
+        if label not in plan.files or label in blocks:
+            continue
+        if index + 1 >= len(lines) or not re.fullmatch(r"[ \t]*```(?:python|py)?[ \t]*", lines[index + 1], re.IGNORECASE):
+            return None
+        closing = index + 2
+        while closing < len(lines) and lines[closing].strip() != "```":
+            closing += 1
+        if closing == len(lines):
+            return None
+        blocks[label] = "\n".join(lines[index + 2:closing])
+    if set(blocks) != set(plan.files):
+        return None
+    return {"files": [{"path": path, "content": blocks[path]} for path in plan.files]}
+
+
 def parse_patch_candidate(raw: str, plan: TaskPlan) -> PatchCandidate:
-    """Accept one final JSON candidate, optionally with a model lead-in or fence."""
+    """Accept structured JSON or strictly labeled code blocks for reviewed paths."""
     try:
         payload = _decode_final_json_object(raw)
     except (TypeError, json.JSONDecodeError) as exc:
-        raise PatchProtocolError("candidate is not valid JSON") from exc
+        payload = _decode_exact_labeled_fences(raw, plan)
+        if payload is None:
+            raise PatchProtocolError("candidate is not valid JSON or exact labeled source blocks") from exc
     entries = payload.get("files") if isinstance(payload, dict) else None
     if not isinstance(entries, list) or not entries:
         raise PatchProtocolError("candidate needs a non-empty files list")
