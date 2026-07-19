@@ -54,6 +54,23 @@ Cloud assistance is a separate, explicit choice. It always goes through secret r
 
 Existing projects stay intact and read-only during migration. WiSense OS ports selected behavior and tests into its own repository; it never calls, imports from, or launches an old project at runtime. After WiSense passes standalone migration checks, the old projects can be archived and deleted.
 
+### Port manifest — the intelligence layer (LAWC → Engine roles)
+
+`local-agent-work-center` (LAWC) is the proven R&D lab; WiSense OS is the product that ships its proofs. The "understands plain English like Claude" layer LAWC finished in July 2026 **is** the Phase 4 payload. Name the port targets now so the two repositories do not grow rival brains:
+
+| LAWC module (reference) | Behavior to port | WiSense engine home |
+|---|---|---|
+| `harness/intent.py` (model-first routing, `parse_intent`, `parse_confirmation`, multi_step, audit kinds) | Lane selection by the chat model with a deterministic floor; every lane keeps its own gate | Planner / coordinator classification, before plan draft |
+| `harness/name_resolution.py` (project registry, nickname + alias, dead-path pruning) | Resolve "the apex scheduler" to a registered root; advisory, always confirmed | `resolving_project` step + `Project` registry in `store` |
+| `harness/file_finder.py` (`resolve_target_file` ladder, fuzzy stem) | explicit → identifier → decisive fuzzy → agentic locate → ask | Explorer role target resolution |
+| `harness/agentic_answer.py` (read-only glob/grep/read loop, `locate_target_with_exploration`) | Explore real files before answering/locating; no write tool in schema | Explorer role `ContextEnvelope` |
+| `harness/brief_draft.py` + `locked_brief.py` (digest-bound approval) | Plain-English → drafted plan → one approval bound to exact intent | Planner draft + `Approval` digest binding |
+| `harness/builder_qualification.py` (create + edit corpus, offline-only, evidence JSON) | Per-model create/edit qualification with structured evidence | `ModelProfile` qualification evidence |
+| `harness/respond.py` (canned-floor conversational phrasing, fact/safety must-keep) | Natural replies with a deterministic safety floor | Coordinator result rendering |
+| `harness/redaction.py`, validator, snapshot/restore, check runner | Already reflected in `patch_protocol`/`workspace`/`patch_executor` | Keep as the write-side floor |
+
+**Divergence policy.** Engine-machinery changes to LAWC happen only when the change is on this manifest (so it lands in WiSense too). Product-shaped work goes straight into WiSense. LAWC never becomes a second product.
+
 ## 4. Target architecture
 
 ```text
@@ -102,6 +119,7 @@ Active local project worktree(s)
 - Require a visible target and diff before writes in Ask Before Changes mode.
 - In Local Autopilot, display the selected target, patch, test result, and commit evidence after completion; keep a prominent stop/cancel control.
 - Run targeted tests, preserve the pre-change state on failure, and allow at most one evidence-driven repair attempt.
+- **Isolate the test subprocess.** The engine's test runner executes pytest against the *target* project, so it must not inherit or leave stale state: disable bytecode writing (`PYTHONDONTWRITEBYTECODE`), disable the cache provider (`-p no:cacheprovider`), clear `__pycache__` before the run, and use a unique per-run basetemp that is removed afterward. A stale `.pyc` can otherwise import an earlier version of a just-edited file and report a **false pass on broken code** — the one validator failure that must never happen. (Ported from the LAWC check-runner audit, findings B1 + stale-bytecode.)
 - Never silently spend cloud money; show model, estimated/actual cost, and confirmation boundary.
 
 ### Operational recovery
@@ -157,7 +175,9 @@ The coordinator owns the project lock, mode, approval, budgets, validation, and 
 
 - Resolve known review findings before migration:
   - model-located write targets need visible confirmation unless Local Autopilot is explicitly selected;
-  - qualification output must distinguish expected/not-applicable baseline checks from failures.
+  - qualification output must distinguish expected/not-applicable baseline checks from failures;
+  - **replace text-matched pending detection with typed pending state.** `service._provider_needs_input` currently classifies an Engine turn as "needs input" by string-matching the reply ("go ahead", trailing "?"). This is the exact regex-guessing failure LAWC removed from routing: the executor must return an explicit typed pending signal in its result, and the coordinator must never infer lifecycle state from reply text. **Do this first** — every other lifecycle guarantee depends on it;
+  - **isolate the test subprocess** (bytecode/cache/basetemp; see §5 Task safety) before any live run against a real project.
 - Remove every legacy runtime bridge, import, port dependency, and global conversation dependency.
 - Make model availability truthful: surface only models actually reachable in the current runtime, distinguish local from cloud accurately, and fail closed when Offline/Local mode has no qualified builder.
 - Exercise native local edit, create, test-failure, repair, cancellation, and restart cases.
@@ -212,6 +232,7 @@ The coordinator owns the project lock, mode, approval, budgets, validation, and 
 - Add real-project replay fixtures for ambiguous project names, ambiguous files, failing baselines, dirty worktrees, and cancellation.
 - Expand model qualification from the existing corpus with reviewed tasks from your own projects.
 - Run qualification separately for each actually available model. Add the upgraded offline builder only when it is installed, reachable, and has passed the local corpus.
+- **Gate the full-file patch protocol by size.** The engine's patch response is a complete-file rewrite (`patch_protocol`), which is simpler than LAWC's find/replace levels but is where silent truncation/mangling lives at an 8k context window. Qualification must record file size per task and flag when a builder's reliable-rewrite ceiling is exceeded; above that ceiling, prefer a bounded-edit protocol or split the file. Do not present a truncated rewrite as a validated change.
 
 **Exit criteria:** a qualified currently available builder can reliably complete simple edit/create/fix tasks and report why it stopped when it cannot. Before the hardware upgrade, that builder may be an explicitly approved cloud model; afterward, the same corpus must qualify the intended offline local builder.
 

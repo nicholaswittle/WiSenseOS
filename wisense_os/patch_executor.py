@@ -4,8 +4,11 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
+import os
+import shutil
 import subprocess
 import sys
+from uuid import uuid4
 from typing import Protocol
 
 from .contracts import TaskRequest
@@ -19,15 +22,36 @@ class TestRunner(Protocol):
     def run(self, project_root: Path, targets: tuple[str, ...]) -> tuple[bool, str]: ...
 
 
+def _clear_pycache(project_root: Path) -> None:
+    for cache_dir in project_root.rglob("__pycache__"):
+        shutil.rmtree(cache_dir, ignore_errors=True)
+
+
 @dataclass(frozen=True)
 class PytestRunner:
     timeout_seconds: float = 120.0
 
     def run(self, project_root: Path, targets: tuple[str, ...]) -> tuple[bool, str]:
-        completed = subprocess.run(
-            [sys.executable, "-m", "pytest", *targets], cwd=project_root,
-            capture_output=True, text=True, timeout=self.timeout_seconds, check=False,
-        )
+        # Isolate the target-project pytest subprocess. Stale bytecode can
+        # import an EARLIER version of a just-edited file and report a
+        # false PASS on broken code -- the one validator failure that must
+        # never happen. So: clear __pycache__ first, disable bytecode
+        # writing and the cache provider, and use a unique project-local
+        # basetemp removed afterward (a leftover untracked dir would look
+        # like an undeclared change to any later git scope check).
+        _clear_pycache(project_root)
+        env = os.environ.copy()
+        env["PYTHONDONTWRITEBYTECODE"] = "1"
+        base_temp = project_root / f".wisense_pytest_{uuid4().hex}"
+        try:
+            completed = subprocess.run(
+                [sys.executable, "-B", "-m", "pytest", "-p", "no:cacheprovider",
+                 f"--basetemp={base_temp}", *targets],
+                cwd=project_root, capture_output=True, text=True,
+                timeout=self.timeout_seconds, check=False, env=env,
+            )
+        finally:
+            shutil.rmtree(base_temp, ignore_errors=True)
         detail = (completed.stdout + completed.stderr)[-12_000:]
         return completed.returncode == 0, detail
 
