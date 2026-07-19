@@ -115,6 +115,31 @@ def test_project_registry_rejects_missing_folder(tmp_path: Path) -> None:
     assert response.get_json() == {"error": "root must be an existing directory"}
 
 
+def test_ask_before_changes_waits_for_api_approval_before_execution(monkeypatch, tmp_path: Path) -> None:
+    def no_network(*_args, **_kwargs):
+        raise RuntimeError("test bridge must not contact Local Agent Work Center")
+
+    monkeypatch.setattr(HttpWorkCenterBridge, "run", no_network)
+    app = create_default_app(tmp_path / "state")
+    client = app.test_client()
+    root = tmp_path / "project"
+    root.mkdir()
+    payload = {
+        "request": "Fix a test", "project_root": str(root),
+        "mode": "ask_before_changes", "chat_model": "glm-5.2:cloud",
+        "builder_model": "gemma4:31b-cloud",
+    }
+
+    waiting = client.post("/api/v1/tasks", json=payload)
+    task_id = waiting.get_json()["task_id"]
+    approved = client.post(f"/api/v1/tasks/{task_id}/approve")
+
+    assert waiting.status_code == 202
+    assert waiting.get_json()["status"] == "waiting_for_approval"
+    assert approved.status_code == 202
+    assert approved.get_json()["status"] == "accepted"
+
+
 def test_construction_never_invokes_bridge(monkeypatch, tmp_path: Path) -> None:
     def bomb(*_args, **_kwargs):
         raise AssertionError("app construction must not invoke the Work Center bridge")

@@ -30,10 +30,35 @@ class TaskCoordinator:
             self.store.create(record)
             self.store.append_event(task_id, "blocked", str(exc))
             return record
-        record = TaskRecord(task_id, request, TaskStatus.ACCEPTED)
+        initial_status = (
+            TaskStatus.WAITING_FOR_APPROVAL
+            if request.mode is RunMode.ASK_BEFORE_CHANGES
+            else TaskStatus.ACCEPTED
+        )
+        record = TaskRecord(task_id, request, initial_status)
         self.store.create(record)
-        self.store.append_event(task_id, "accepted", "task persisted; no model call has been made")
+        if initial_status is TaskStatus.WAITING_FOR_APPROVAL:
+            self.store.append_event(
+                task_id,
+                "awaiting_approval",
+                "task persisted; approve before the Engine contacts a model or changes a project",
+            )
+        else:
+            self.store.append_event(task_id, "accepted", "task persisted; no model call has been made")
         return record
+
+    def approve(self, task_id: str) -> TaskRecord:
+        with self._execution_lock:
+            record = self.store.get(task_id)
+            if record is None:
+                raise KeyError(f"unknown task: {task_id}")
+            if record.status is not TaskStatus.WAITING_FOR_APPROVAL:
+                raise ValueError(f"task is not awaiting approval: {record.status.value}")
+            self.store.update_status(task_id, TaskStatus.ACCEPTED)
+            self.store.append_event(task_id, "approved", "user approved Engine handoff")
+            approved = self.store.get(task_id)
+            assert approved is not None
+            return approved
 
     def execute(self, task_id: str) -> TaskRecord:
         record = self.store.get(task_id)

@@ -66,6 +66,18 @@ def create_app(coordinator: TaskCoordinator) -> Flask:
         record = coordinator.submit(task_request)
         if record.status.value == "blocked":
             return jsonify(record.to_json()), 409
+        if record.status.value == "accepted":
+            Thread(target=coordinator.execute, args=(record.task_id,), daemon=True).start()
+        return jsonify(record.to_json()), 202
+
+    @app.post("/api/v1/tasks/<task_id>/approve")
+    def approve_task(task_id: str):
+        try:
+            record = coordinator.approve(task_id)
+        except KeyError:
+            return jsonify({"error": "task not found"}), 404
+        except ValueError as exc:
+            return jsonify({"error": str(exc)}), 409
         Thread(target=coordinator.execute, args=(record.task_id,), daemon=True).start()
         return jsonify(record.to_json()), 202
 
