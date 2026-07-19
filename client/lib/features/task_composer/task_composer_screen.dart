@@ -48,6 +48,9 @@ class _TaskComposerScreenState extends State<TaskComposerScreen> {
   }
 
   Future<void> _approveEngineHandoff(TaskComposerController controller) async {
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('Approval button clicked — contacting the local Engine…')),
+    );
     await controller.approveActiveTask();
     // The approval endpoint starts work asynchronously. Refreshing after the
     // request makes the visible state move even if the worker has not yet
