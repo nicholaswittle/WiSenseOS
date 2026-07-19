@@ -189,10 +189,15 @@ class _EngineStatusScreenState extends State<EngineStatusScreen> {
               spacing: 8,
               runSpacing: 4,
               children: [
-                if (model.supervisedTestingOnly)
+                if (model.provider == 'cloud' && model.supervisedTestingOnly)
                   const Chip(
                     avatar: Icon(Icons.cloud_outlined, size: 16),
-                    label: Text('Cloud — supervised testing'),
+                    label: Text('Cloud - supervised testing'),
+                    backgroundColor: Color(0xFFE3F2FD),
+                  ),
+                if (model.provider != 'cloud' && model.supervisedTestingOnly)
+                  const Chip(
+                    label: Text('Supervised testing'),
                     backgroundColor: Color(0xFFE3F2FD),
                   ),
                 if (model.futureLocalTarget)

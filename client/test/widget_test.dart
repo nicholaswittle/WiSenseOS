@@ -1,30 +1,41 @@
-// This is a basic Flutter widget test.
-//
-// To perform an interaction with a widget in your test, use the WidgetTester
-// utility in the flutter_test package. For example, you can send tap and scroll
-// gestures. You can also use WidgetTester to find child widgets in the widget
-// tree, read text, and verify that the values of widget properties are correct.
+import 'dart:convert';
 
-import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-
+import 'package:http/http.dart' as http;
+import 'package:wisense_os_client/core/engine/wisense_engine_client.dart';
 import 'package:wisense_os_client/main.dart';
 
+class _FakeClient extends http.BaseClient {
+  @override
+  Future<http.StreamedResponse> send(http.BaseRequest request) async {
+    final body = request.url.path.endsWith('/health')
+        ? {'engine': 'wisense-os', 'status': 'ready', 'version': '0.1.0'}
+        : {
+            'models': [
+              {
+                'name': 'gemma4:31b-cloud',
+                'provider': 'cloud',
+                'roles': ['builder'],
+                'available': true,
+                'supervised_testing_only': true,
+                'future_local_target': true,
+              }
+            ]
+          };
+    return http.StreamedResponse(Stream.value(utf8.encode(jsonEncode(body))), 200);
+  }
+}
+
 void main() {
-  testWidgets('Counter increments smoke test', (WidgetTester tester) async {
-    // Build our app and trigger a frame.
-    await tester.pumpWidget(const MyApp());
+  testWidgets('WiSense OS displays engine and truthful cloud profile', (tester) async {
+    await tester.pumpWidget(WiSenseOSApp(
+      client: WiSenseEngineClient(client: _FakeClient()),
+    ));
+    await tester.pumpAndSettle();
 
-    // Verify that our counter starts at 0.
-    expect(find.text('0'), findsOneWidget);
-    expect(find.text('1'), findsNothing);
-
-    // Tap the '+' icon and trigger a frame.
-    await tester.tap(find.byIcon(Icons.add));
-    await tester.pump();
-
-    // Verify that our counter has incremented.
-    expect(find.text('0'), findsNothing);
-    expect(find.text('1'), findsOneWidget);
+    expect(find.text('WiSense OS'), findsOneWidget);
+    expect(find.text('Engine Active'), findsOneWidget);
+    expect(find.text('Cloud - supervised testing'), findsOneWidget);
+    expect(find.text('Future local target'), findsOneWidget);
   });
 }
