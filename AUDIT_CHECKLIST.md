@@ -30,6 +30,12 @@ Use this audit checklist during development, refactoring, or feature additions t
 - [ ] **Flutter Suite**: Does Flutter analysis pass (`flutter analyze` -> 0 issues) and all unit/widget tests pass (`flutter test` -> 100% pass rate)?
 - [ ] **Git Scoped Commits**: Are commits scoped specifically to modified files without sweeping unrelated changes?
 
+### 6. Andrej Karpathy LLM Behavioral Principles Check
+- [ ] **Think Before Coding**: Are assumptions explicitly stated in the plan draft before modifying code?
+- [ ] **Simplicity First**: Is the patch free of speculative abstractions, unused features, or unnecessary wrappers?
+- [ ] **Surgical Scope**: Are changes strictly limited to files specified in the request/plan?
+- [ ] **Goal-Driven Execution**: Do unit tests run and pass to verify the exact change before finalizing?
+
 ---
 
 ## 🛠 How to Run an Audit

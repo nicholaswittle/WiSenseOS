@@ -36,9 +36,11 @@ def generate_project_context(project_root: Path) -> Path:
 - Subdirectories: {", ".join(sorted(subdirs)) if subdirs else "None"}
 - Root Files: {", ".join(sorted(files[:15]))}
 
-## AIOS Operating Guidelines
-- Preserve existing comments and docstrings.
-- Ensure all unit tests pass before committing changes.
+## AIOS Operating Guidelines (Andrej Karpathy 4 Core Principles)
+1. **Think Before Coding**: State all assumptions explicitly. If requirements are ambiguous, ask for clarification instead of guessing.
+2. **Simplicity First**: Implement the simplest possible solution. Avoid speculative abstractions, unused features, or unnecessary wrapper code.
+3. **Surgical Changes**: Restrict modifications strictly to requested files. Never refactor, reformat, or "clean up" unrelated code outside the requested scope.
+4. **Goal-Driven Execution**: Define explicit, test-verifiable acceptance criteria before writing code. Verify that unit tests pass before committing.
 """
 
     context_file.write_text(content, encoding="utf-8")

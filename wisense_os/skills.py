@@ -59,6 +59,14 @@ BUILTIN_SOPS: List[SOPWorkflow] = [
         default_request="Generate standard docstrings for all exported functions and update README.md.",
         recommended_mode="local_autopilot",
     ),
+    SOPWorkflow(
+        id="karpathy_refactor",
+        name="Karpathy Surgical Refactor",
+        category="Principles",
+        description="Enforces Andrej Karpathy's 4 rules: surgical diff footprint, no speculative abstractions, and goal-driven test verification.",
+        default_request="Perform a surgical refactor following Karpathy's 4 rules: state assumptions first, use simplest code, limit diffs to target file, and verify tests pass.",
+        recommended_mode="ask_before_changes",
+    ),
 ]
 
 
