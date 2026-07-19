@@ -60,8 +60,16 @@ def redact_text(text: str) -> str:
     return _SECRET_ASSIGNMENT.sub(replace, text)
 
 
-def redact_messages(messages: list[dict[str, str]]) -> list[dict[str, str]]:
-    return [{**message, "content": redact_text(message.get("content", ""))} for message in messages]
+def redact_messages(messages: list[dict]) -> list[dict]:
+    """Redact string contents; preserve tool_calls / non-string fields."""
+    redacted: list[dict] = []
+    for message in messages:
+        row = dict(message)
+        content = row.get("content")
+        if isinstance(content, str):
+            row["content"] = redact_text(content)
+        redacted.append(row)
+    return redacted
 
 
 @dataclass
@@ -69,14 +77,15 @@ class OllamaChatAdapter:
     base_url: str = "http://127.0.0.1:11434"
     transport: Callable[[Request, float], bytes] | None = None
 
-    def complete(
+    def _chat(
         self,
-        messages: list[dict[str, str]],
+        messages: list[dict],
         *,
         model: str,
         timeout_seconds: float = 120.0,
-        structured_patch: bool = True,
-    ) -> str:
+        structured_patch: bool = False,
+        tools: list[dict] | None = None,
+    ) -> dict:
         payload: dict[str, object] = {
             "model": model,
             "messages": redact_messages(messages),
@@ -84,6 +93,8 @@ class OllamaChatAdapter:
         }
         if structured_patch:
             payload["format"] = _PATCH_RESPONSE_SCHEMA
+        if tools is not None:
+            payload["tools"] = tools
         request = Request(
             f"{self.base_url.rstrip('/')}/api/chat",
             data=json.dumps(payload).encode("utf-8"),
@@ -93,9 +104,28 @@ class OllamaChatAdapter:
         try:
             raw = (self.transport or _urlopen_bytes)(request, timeout_seconds)
             response = json.loads(raw.decode("utf-8"))
-            content = response.get("message", {}).get("content")
+            message = response.get("message")
         except (OSError, UnicodeDecodeError, json.JSONDecodeError, AttributeError) as exc:
             raise ModelAdapterError("Ollama chat request failed") from exc
+        if not isinstance(message, dict):
+            raise ModelAdapterError("Ollama returned no chat message")
+        return message
+
+    def complete(
+        self,
+        messages: list[dict[str, str]],
+        *,
+        model: str,
+        timeout_seconds: float = 120.0,
+        structured_patch: bool = True,
+    ) -> str:
+        message = self._chat(
+            messages,
+            model=model,
+            timeout_seconds=timeout_seconds,
+            structured_patch=structured_patch,
+        )
+        content = message.get("content")
         if not isinstance(content, str) or not content.strip():
             raise ModelAdapterError("Ollama returned no chat content")
         return content
@@ -111,6 +141,42 @@ class OllamaChatAdapter:
         return self.complete(
             messages, model=model, timeout_seconds=timeout_seconds, structured_patch=False,
         )
+
+    def complete_with_tools(
+        self,
+        messages: list[dict],
+        *,
+        model: str,
+        tools: list[dict] | None = None,
+        timeout_seconds: float = 120.0,
+    ) -> dict:
+        """Return the raw assistant message, including optional tool_calls.
+
+        Used by agentic read-only explore. Callers must never treat this as a
+        write authority — tools are dispatched by exploration_tools only.
+        """
+        message = self._chat(
+            messages,
+            model=model,
+            timeout_seconds=timeout_seconds,
+            structured_patch=False,
+            tools=tools,
+        )
+        content = message.get("content")
+        tool_calls = message.get("tool_calls")
+        has_tools = isinstance(tool_calls, list) and bool(tool_calls)
+        if has_tools:
+            return {
+                "role": message.get("role", "assistant"),
+                "content": content if isinstance(content, str) else "",
+                "tool_calls": tool_calls,
+            }
+        if not isinstance(content, str) or not content.strip():
+            raise ModelAdapterError("Ollama returned no chat content")
+        return {
+            "role": message.get("role", "assistant"),
+            "content": content,
+        }
 
     def available_models(self, timeout_seconds: float = 2.0) -> set[str]:
         """Return names reported by the loopback Ollama runtime, or none on failure."""
