@@ -103,19 +103,19 @@ class _WiSenseOSAppState extends State<WiSenseOSApp> {
               label: 'Engine Status',
             ),
             BottomNavigationBarItem(
-              icon: Icon(Icons.edit_note_outlined),
-              activeIcon: Icon(Icons.edit_note),
-              label: 'Task Composer',
+              icon: Icon(Icons.chat_outlined),
+              activeIcon: Icon(Icons.chat),
+              label: 'Companion',
             ),
             BottomNavigationBarItem(
               icon: Icon(Icons.history_outlined),
               activeIcon: Icon(Icons.history),
-              label: 'Task History',
+              label: 'History',
             ),
             BottomNavigationBarItem(
               icon: Icon(Icons.analytics_outlined),
               activeIcon: Icon(Icons.analytics),
-              label: 'Command View',
+              label: 'Command',
             ),
             BottomNavigationBarItem(
               icon: Icon(Icons.auto_awesome_outlined),

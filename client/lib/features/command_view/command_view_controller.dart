@@ -12,11 +12,17 @@ class CommandViewController extends ChangeNotifier {
   bool _runningQualification = false;
   String? _error;
   EngineTelemetryReport? _telemetry;
+  List<EngineTaskStatus> _recentTasks = const [];
+  EngineTaskStatus? _focusedTask;
 
   bool get loading => _loading;
   bool get runningQualification => _runningQualification;
   String? get error => _error;
   EngineTelemetryReport? get telemetry => _telemetry;
+  List<EngineTaskStatus> get recentTasks => _recentTasks;
+  List<EngineTaskStatus> get activeTasks =>
+      _recentTasks.where((task) => task.isActive).toList(growable: false);
+  EngineTaskStatus? get focusedTask => _focusedTask;
 
   Future<void> refresh() async {
     _loading = true;
@@ -24,13 +30,43 @@ class CommandViewController extends ChangeNotifier {
     notifyListeners();
 
     try {
-      final report = await client.getTelemetry();
-      _telemetry = report;
+      final results = await Future.wait([
+        client.getTelemetry(),
+        client.listTasks(limit: 20),
+      ]);
+      _telemetry = results[0] as EngineTelemetryReport;
+      _recentTasks = results[1] as List<EngineTaskStatus>;
+
+      final preferredId = _focusedTask?.taskId;
+      final active = activeTasks;
+      EngineTaskStatus? nextFocus;
+      if (preferredId != null) {
+        nextFocus = _recentTasks.where((t) => t.taskId == preferredId).firstOrNull;
+      }
+      nextFocus ??= active.firstOrNull ?? _recentTasks.firstOrNull;
+      if (nextFocus != null) {
+        _focusedTask = await client.getTask(nextFocus.taskId);
+      } else {
+        _focusedTask = null;
+      }
+
       _loading = false;
       notifyListeners();
     } catch (e) {
       _loading = false;
-      _error = 'Failed to load telemetry: $e';
+      _error = 'Failed to load command view: $e';
+      notifyListeners();
+    }
+  }
+
+  Future<void> focusTask(String taskId) async {
+    _error = null;
+    notifyListeners();
+    try {
+      _focusedTask = await client.getTask(taskId);
+      notifyListeners();
+    } catch (e) {
+      _error = 'Failed to load task $taskId: $e';
       notifyListeners();
     }
   }

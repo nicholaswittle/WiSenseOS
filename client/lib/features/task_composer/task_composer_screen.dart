@@ -1,15 +1,18 @@
 import 'package:flutter/material.dart';
 
 import '../../core/engine/engine_models.dart';
+import '../../core/voice/voice_input.dart';
 import 'task_composer_controller.dart';
 
 class TaskComposerScreen extends StatefulWidget {
   const TaskComposerScreen({
     super.key,
     required this.controller,
+    this.voiceInput,
   });
 
   final TaskComposerController controller;
+  final VoiceInput? voiceInput;
 
   @override
   State<TaskComposerScreen> createState() => _TaskComposerScreenState();
@@ -19,21 +22,68 @@ class _TaskComposerScreenState extends State<TaskComposerScreen> {
   final TextEditingController _textController = TextEditingController();
   final TextEditingController _providerInputController = TextEditingController();
   final TextEditingController _resolveController = TextEditingController();
+  late final VoiceInput _voice;
   bool _isListening = false;
+  bool _voiceReady = false;
+  String? _voiceStatus;
 
-  void _toggleVoiceInput() {
-    setState(() {
-      _isListening = !_isListening;
-      if (_isListening && _textController.text.isEmpty) {
-        _textController.text = 'Fix the totals bug in the billing module and run relevant tests';
-        widget.controller.updateRequestText(_textController.text);
+  Future<void> _toggleVoiceInput() async {
+    if (_isListening) {
+      await _voice.stop();
+      if (!mounted) return;
+      setState(() {
+        _isListening = false;
+        _voiceStatus = null;
+      });
+      return;
+    }
+
+    if (!_voiceReady) {
+      _voiceReady = await _voice.initialize();
+      if (!_voiceReady) {
+        if (!mounted) return;
+        setState(() {
+          _voiceStatus =
+              'Speech recognition unavailable. Use the keyboard, or enable Windows Speech.';
+        });
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(_voiceStatus!)),
+        );
+        return;
       }
+    }
+
+    setState(() {
+      _isListening = true;
+      _voiceStatus = 'Listening… speak your task request';
     });
+    await _voice.start(
+      onResult: (words, isFinal) {
+        if (!mounted || words.trim().isEmpty) return;
+        setState(() {
+          _textController.text = words;
+          _textController.selection = TextSelection.collapsed(offset: words.length);
+          _voiceStatus = isFinal ? 'Voice captured — review before submit' : 'Listening…';
+          if (isFinal) {
+            _isListening = false;
+          }
+        });
+        widget.controller.updateRequestText(words);
+      },
+      onError: (message) {
+        if (!mounted) return;
+        setState(() {
+          _isListening = false;
+          _voiceStatus = message;
+        });
+      },
+    );
   }
 
   @override
   void initState() {
     super.initState();
+    _voice = widget.voiceInput ?? SpeechToTextVoiceInput();
     widget.controller.addListener(_onControllerChanged);
     widget.controller.load();
     _textController.text = widget.controller.requestText;
@@ -42,6 +92,9 @@ class _TaskComposerScreenState extends State<TaskComposerScreen> {
   @override
   void dispose() {
     widget.controller.removeListener(_onControllerChanged);
+    if (_isListening) {
+      _voice.cancel();
+    }
     _textController.dispose();
     _providerInputController.dispose();
     _resolveController.dispose();
@@ -145,7 +198,7 @@ class _TaskComposerScreenState extends State<TaskComposerScreen> {
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Task Composer'),
+        title: const Text('Companion'),
         actions: [
           IconButton(
             icon: const Icon(Icons.refresh),
@@ -274,6 +327,16 @@ class _TaskComposerScreenState extends State<TaskComposerScreen> {
             ),
             onChanged: controller.updateRequestText,
           ),
+          if (_voiceStatus != null) ...[
+            const SizedBox(height: 6),
+            Text(
+              _voiceStatus!,
+              style: TextStyle(
+                color: _isListening ? Colors.red.shade800 : Colors.blueGrey.shade800,
+                fontStyle: FontStyle.italic,
+              ),
+            ),
+          ],
           const SizedBox(height: 16),
 
           // Operating Mode Selector

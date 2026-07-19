@@ -249,6 +249,11 @@ class EngineTaskStatus {
     required this.events,
     this.plan,
     this.proposal,
+    this.requestText = '',
+    this.mode = '',
+    this.builderModel = '',
+    this.chatModel = '',
+    this.projectRoot = '',
   });
 
   final String taskId;
@@ -258,14 +263,29 @@ class EngineTaskStatus {
   final List<EngineTaskEvent> events;
   final EngineTaskPlan? plan;
   final EngineTaskProposal? proposal;
+  final String requestText;
+  final String mode;
+  final String builderModel;
+  final String chatModel;
+  final String projectRoot;
 
   bool get isBlocked => statusCode == 409 || status == 'blocked';
+
+  bool get isActive =>
+      status == 'accepted' ||
+      status == 'exploring' ||
+      status == 'waiting_for_approval' ||
+      status == 'waiting_for_provider_input' ||
+      status == 'running';
 
   factory EngineTaskStatus.fromJson(
     Map<String, dynamic> json, {
     required int statusCode,
   }) {
     final rawEvents = (json['events'] as List?) ?? const [];
+    final request = json['request'] is Map
+        ? Map<String, dynamic>.from(json['request'] as Map)
+        : const <String, dynamic>{};
     return EngineTaskStatus(
       taskId: json['task_id']?.toString() ?? '',
       status: json['status']?.toString() ??
@@ -284,6 +304,11 @@ class EngineTaskStatus {
           ? EngineTaskProposal.fromJson(
               Map<String, dynamic>.from(json['proposal'] as Map))
           : null,
+      requestText: request['request']?.toString() ?? '',
+      mode: request['mode']?.toString() ?? '',
+      builderModel: request['builder_model']?.toString() ?? '',
+      chatModel: request['chat_model']?.toString() ?? '',
+      projectRoot: request['project_root']?.toString() ?? '',
     );
   }
 }

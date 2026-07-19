@@ -24,7 +24,7 @@ class FakeHttpClient extends http.BaseClient {
 
 void main() {
   group('CommandViewController', () {
-    test('refresh() loads honest telemetry without inventing qualification', () async {
+    test('refresh() loads telemetry, active tasks, and focused evidence', () async {
       final fakeClient = FakeHttpClient((request) async {
         if (request.url.path.endsWith('/telemetry')) {
           return http.Response(
@@ -33,11 +33,65 @@ void main() {
                 'vram_used_mb': null,
                 'vram_total_mb': null,
                 'tokens_per_sec': null,
-                'active_local_runs': 1,
-                'active_cloud_runs': 0,
+                'active_local_runs': 0,
+                'active_cloud_runs': 1,
                 'instrumented': false,
               },
               'qualification': [],
+              'budget': {
+                'cap_usd': 20.0,
+                'confirmed_usd': 0.1,
+                'reserved_usd': 0.0,
+                'exposure_usd': 0.1,
+              },
+            }),
+            200,
+          );
+        }
+        if (request.url.path.endsWith('/tasks') && request.method == 'GET') {
+          return http.Response(
+            jsonEncode({
+              'tasks': [
+                {
+                  'task_id': 'task-1',
+                  'status': 'waiting_for_approval',
+                  'reason': 'proposal ready',
+                  'request': {
+                    'request': 'Fix billing totals',
+                    'mode': 'ask_before_changes',
+                    'builder_model': 'gemma4:31b-cloud',
+                    'chat_model': 'glm-5.2:cloud',
+                    'project_root': 'C:/proj',
+                  },
+                }
+              ]
+            }),
+            200,
+          );
+        }
+        if (request.url.path.endsWith('/tasks/task-1')) {
+          return http.Response(
+            jsonEncode({
+              'task_id': 'task-1',
+              'status': 'waiting_for_approval',
+              'reason': 'proposal ready',
+              'request': {
+                'request': 'Fix billing totals',
+                'mode': 'ask_before_changes',
+                'builder_model': 'gemma4:31b-cloud',
+                'chat_model': 'glm-5.2:cloud',
+                'project_root': 'C:/proj',
+              },
+              'events': [
+                {'sequence': 1, 'kind': 'accepted', 'detail': 'persisted'},
+                {'sequence': 2, 'kind': 'proposal_ready', 'detail': 'digest abc'},
+              ],
+              'proposal': {
+                'digest': 'abc123',
+                'summary': '1 file changed',
+                'files': ['billing.py'],
+                'diffs': {'billing.py': '- return 0\n+ return sum(items)\n'},
+              },
             }),
             200,
           );
@@ -48,20 +102,15 @@ void main() {
       final engineClient = WiSenseEngineClient(client: fakeClient);
       final controller = CommandViewController(client: engineClient);
 
-      expect(controller.loading, isFalse);
-      expect(controller.telemetry, isNull);
-
       await controller.refresh();
 
-      expect(controller.loading, isFalse);
       expect(controller.error, isNull);
-      expect(controller.telemetry, isNotNull);
-      expect(controller.telemetry!.compute.vramUsedMb, isNull);
-      expect(controller.telemetry!.compute.vramTotalMb, isNull);
-      expect(controller.telemetry!.compute.tokensPerSec, isNull);
-      expect(controller.telemetry!.compute.activeLocalRuns, equals(1));
-      expect(controller.telemetry!.compute.instrumented, isFalse);
-      expect(controller.telemetry!.qualification, isEmpty);
+      expect(controller.telemetry!.compute.activeCloudRuns, equals(1));
+      expect(controller.activeTasks.length, equals(1));
+      expect(controller.focusedTask?.taskId, equals('task-1'));
+      expect(controller.focusedTask?.proposal?.digest, equals('abc123'));
+      expect(controller.focusedTask?.events.length, equals(2));
+      expect(controller.focusedTask?.requestText, equals('Fix billing totals'));
     });
 
     test('refresh() sets error state when telemetry endpoint fails', () async {
@@ -77,7 +126,7 @@ void main() {
       expect(controller.loading, isFalse);
       expect(controller.telemetry, isNull);
       expect(controller.error, isNotNull);
-      expect(controller.error, contains('Failed to load telemetry'));
+      expect(controller.error, contains('Failed to load command view'));
     });
   });
 }

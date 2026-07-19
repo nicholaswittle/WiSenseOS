@@ -52,7 +52,7 @@ class _CommandViewScreenState extends State<CommandViewScreen> {
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Command View & Telemetry'),
+        title: const Text('Command'),
         actions: [
           IconButton(
             icon: const Icon(Icons.refresh),
@@ -172,6 +172,54 @@ class _CommandViewScreenState extends State<CommandViewScreen> {
             const SizedBox(height: 20),
           ],
 
+          Text(
+            'Active Task Operations',
+            style: Theme.of(context).textTheme.titleLarge,
+          ),
+          const SizedBox(height: 6),
+          Text(
+            'Live timeline, proposal digests, and diffs for in-flight engine work.',
+            style: Theme.of(context).textTheme.bodySmall,
+          ),
+          const SizedBox(height: 8),
+          if (controller.activeTasks.isEmpty)
+            const Card(
+              child: ListTile(
+                leading: Icon(Icons.inbox_outlined),
+                title: Text('No active tasks'),
+                subtitle: Text('Accepted, exploring, waiting, or running work will appear here.'),
+              ),
+            )
+          else
+            ...controller.activeTasks.map((task) {
+              final selected = controller.focusedTask?.taskId == task.taskId;
+              return Card(
+                color: selected ? Colors.deepPurple.shade50 : null,
+                child: ListTile(
+                  leading: Icon(
+                    selected ? Icons.play_circle_fill : Icons.play_circle_outline,
+                    color: Colors.deepPurple,
+                  ),
+                  title: Text(
+                    task.requestText.isEmpty ? task.taskId : task.requestText,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                  subtitle: Text(
+                    '${task.status} · ${task.mode.isEmpty ? 'mode n/a' : task.mode}'
+                    '${task.builderModel.isEmpty ? '' : ' · ${task.builderModel}'}',
+                  ),
+                  trailing: selected ? const Icon(Icons.check) : null,
+                  onTap: () => controller.focusTask(task.taskId),
+                ),
+              );
+            }),
+          if (controller.focusedTask != null) ...[
+            const SizedBox(height: 12),
+            _buildFocusedTaskPanel(context, controller.focusedTask!),
+          ],
+          const SizedBox(height: 20),
+
           if (controller.telemetry?.budget != null) ...[
             Text(
               'Cloud Budget',
@@ -230,6 +278,98 @@ class _CommandViewScreenState extends State<CommandViewScreen> {
           else
             ...qualification.map((score) => _buildQualificationTile(context, score)),
         ],
+      ),
+    );
+  }
+
+  Widget _buildFocusedTaskPanel(BuildContext context, EngineTaskStatus task) {
+    final proposal = task.proposal;
+    final events = task.events;
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Focused task evidence',
+              style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                    fontWeight: FontWeight.bold,
+                  ),
+            ),
+            const SizedBox(height: 4),
+            Text(
+              task.taskId,
+              style: Theme.of(context).textTheme.bodySmall,
+            ),
+            if (task.reason != null && task.reason!.isNotEmpty) ...[
+              const SizedBox(height: 8),
+              Text(task.reason!),
+            ],
+            if (proposal != null) ...[
+              const SizedBox(height: 12),
+              Text(
+                'Proposal',
+                style: Theme.of(context).textTheme.titleSmall,
+              ),
+              Text(proposal.summary),
+              Text(
+                'Digest ${proposal.digest}',
+                style: const TextStyle(fontFamily: 'monospace', fontSize: 12),
+              ),
+              const SizedBox(height: 8),
+              if (proposal.diffs.isEmpty)
+                const Text('No textual diffs in this proposal.')
+              else
+                ...proposal.diffs.entries.map((entry) {
+                  final preview = entry.value.length > 800
+                      ? '${entry.value.substring(0, 800)}\n…'
+                      : entry.value;
+                  return Padding(
+                    padding: const EdgeInsets.only(bottom: 8),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          entry.key,
+                          style: const TextStyle(fontWeight: FontWeight.w600),
+                        ),
+                        Container(
+                          width: double.infinity,
+                          padding: const EdgeInsets.all(8),
+                          color: Colors.grey.shade100,
+                          child: Text(
+                            preview.isEmpty ? '(no diff text)' : preview,
+                            style: const TextStyle(
+                              fontFamily: 'monospace',
+                              fontSize: 11,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  );
+                }),
+            ],
+            const SizedBox(height: 12),
+            Text(
+              'Timeline',
+              style: Theme.of(context).textTheme.titleSmall,
+            ),
+            if (events.isEmpty)
+              const Text('No durable events yet.')
+            else
+              ...events.map(
+                (event) => ListTile(
+                  dense: true,
+                  contentPadding: EdgeInsets.zero,
+                  leading: Text('#${event.sequence}'),
+                  title: Text(event.kind),
+                  subtitle: Text(event.detail),
+                ),
+              ),
+          ],
+        ),
       ),
     );
   }
