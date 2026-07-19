@@ -13,6 +13,20 @@ The product is local-first:
 - The user can use text or voice, select a project by name, and see evidence for every action.
 - The engine, not the user interface, is the only component that may call models, read/write projects, run tests, or commit changes.
 
+### Current hardware reality and rollout policy
+
+WiSense OS must **not** assume that a reliable large local builder is available today. In the current machine configuration, local models may be used for limited experiments or lightweight tasks, but dependable implementation work can use an explicitly approved cloud builder through the engine's existing redaction, confirmation, and budget controls.
+
+The target after the planned hardware upgrade is reliable offline operation with a Gemma-class local builder. That is a future capability milestone, not a prerequisite for the first WiSense OS bridge and not a reason to pretend that a `gemma4:31b` cloud or local service exists today.
+
+Model policy is therefore capability-based and configuration-driven:
+
+- Every provider/model is discovered from the actual local/runtime configuration; UI labels never invent availability.
+- A model is eligible for a task only after it has a matching local or cloud capability profile and qualification evidence.
+- Offline/Local mode uses only models confirmed available locally; if none is qualified, it stops honestly instead of silently changing to cloud.
+- Hybrid mode may use an approved cloud builder, with a visible model name, confirmation boundary, and budget result.
+- After the hardware upgrade, a qualified local builder can become the preferred default without changing the task, approval, or validation lifecycle.
+
 ## 2. The desired daily experience
 
 > “Fix the totals bug in the billing project, then run the relevant tests.”
@@ -145,6 +159,7 @@ The coordinator owns the project lock, mode, approval, budgets, validation, and 
   - model-located write targets need visible confirmation unless Local Autopilot is explicitly selected;
   - qualification output must distinguish expected/not-applicable baseline checks from failures.
 - Confirm one canonical direct-task route in the existing API; do not create duplicate dispatch behavior.
+- Make model availability truthful: surface only models actually reachable in the current runtime, distinguish local from cloud accurately, and fail closed when Offline/Local mode has no qualified builder.
 - Exercise live local edit, create, test-failure, repair, cancellation, and restart cases.
 - Write a migration compatibility test suite around the canonical route.
 
@@ -157,6 +172,7 @@ The coordinator owns the project lock, mode, approval, budgets, validation, and 
 - Create `EngineClient` in `my_ai` for engine health, project choice, submit, approval/cancel, status, and history.
 - Connect the existing chat input to the canonical engine route.
 - Render task status and final evidence in the existing conversation view.
+- Display the chosen provider, model, local/cloud status, and budget state for every run; do not hard-code a presumed Gemma model.
 - Keep the folder watcher available only as a temporary legacy fallback; do not use it for the new path.
 - Store no paid-provider keys in the new client flow.
 
@@ -195,8 +211,9 @@ The coordinator owns the project lock, mode, approval, budgets, validation, and 
 - Support a single bounded repair after a failed relevant test.
 - Add real-project replay fixtures for ambiguous project names, ambiguous files, failing baselines, dirty worktrees, and cancellation.
 - Expand model qualification from the existing corpus with reviewed tasks from your own projects.
+- Run qualification separately for each actually available model. Add the upgraded offline builder only when it is installed, reachable, and has passed the local corpus.
 
-**Exit criteria:** local models can reliably complete simple edit/create/fix tasks and report why they stopped when they cannot.
+**Exit criteria:** a qualified currently available builder can reliably complete simple edit/create/fix tasks and report why it stopped when it cannot. Before the hardware upgrade, that builder may be an explicitly approved cloud model; afterward, the same corpus must qualify the intended offline local builder.
 
 ### Phase 5 — Voice, optional remote status, and packaging
 
@@ -224,6 +241,7 @@ WiSense OS is ready for everyday use when all of these are true:
 8. Cloud providers are only reachable through the engine's redaction, budget, and approval controls.
 9. The old folder watcher is unnecessary for normal interactive work.
 10. The same task lifecycle powers chat, voice, dashboard, and terminal/CLI access.
+11. Before the hardware upgrade, the app accurately represents cloud-assisted operation; after it, it can select a qualified offline builder without changing safety behavior.
 
 ## 10. Out of scope until the core is proven
 
