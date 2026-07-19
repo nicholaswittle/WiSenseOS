@@ -42,6 +42,9 @@ class ModelRegistry:
         except KeyError as exc:
             raise ModelPolicyError(f"model is not configured: {name}") from exc
 
+    def profiles(self) -> tuple[ModelProfile, ...]:
+        return tuple(self._profiles[name] for name in sorted(self._profiles))
+
     def validate(self, request: TaskRequest) -> None:
         chat = self.get(request.chat_model)
         builder = self.get(request.builder_model)
@@ -60,4 +63,3 @@ class ModelRegistry:
             # A builder is not used in this mode; allow the configured profile but
             # make no provider call through the coordinator.
             return
-

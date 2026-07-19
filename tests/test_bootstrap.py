@@ -22,6 +22,43 @@ def test_unknown_task_is_a_real_404_from_live_flask_app(tmp_path: Path) -> None:
     assert response.get_json() == {"error": "task not found"}
 
 
+def test_live_api_exposes_truthful_health_and_model_profiles(tmp_path: Path) -> None:
+    app = create_default_app(tmp_path / "state")
+    client = app.test_client()
+
+    assert client.get("/api/v1/health").get_json() == {
+        "engine": "wisense-os", "status": "ready", "version": "0.1.0"
+    }
+    models = client.get("/api/v1/models").get_json()["models"]
+    assert models == [
+        {
+            "available": True,
+            "future_local_target": True,
+            "name": "gemma4:31b-cloud",
+            "provider": "cloud",
+            "roles": ["builder"],
+            "supervised_testing_only": True,
+        },
+        {
+            "available": True,
+            "future_local_target": False,
+            "name": "glm-5.2:cloud",
+            "provider": "cloud",
+            "roles": ["chat", "planner", "builder"],
+            "supervised_testing_only": True,
+        },
+    ]
+
+
+def test_unknown_mode_is_rejected_before_task_creation(tmp_path: Path) -> None:
+    app = create_default_app(tmp_path / "state")
+
+    response = app.test_client().post("/api/v1/tasks", json={"mode": "anything_goes"})
+
+    assert response.status_code == 400
+    assert response.get_json() == {"error": "unknown run mode"}
+
+
 def test_construction_never_invokes_bridge(monkeypatch, tmp_path: Path) -> None:
     def bomb(*_args, **_kwargs):
         raise AssertionError("app construction must not invoke the Work Center bridge")

@@ -13,16 +13,27 @@ from .service import TaskCoordinator
 def create_app(coordinator: TaskCoordinator) -> Flask:
     app = Flask(__name__)
 
+    @app.get("/api/v1/health")
+    def health():
+        return jsonify({"engine": "wisense-os", "version": "0.1.0", "status": "ready"})
+
+    @app.get("/api/v1/models")
+    def models():
+        return jsonify({"models": [profile.to_json() for profile in coordinator.models.profiles()]})
+
     @app.post("/api/v1/tasks")
     def submit_task():
         data = request.get_json(force=True)
-        task_request = TaskRequest(
-            request=str(data.get("request", "")).strip(),
-            project_root=str(data.get("project_root", "")).strip(),
-            mode=RunMode(data.get("mode", RunMode.ASK_BEFORE_CHANGES.value)),
-            chat_model=str(data.get("chat_model", "")),
-            builder_model=str(data.get("builder_model", "")),
-        )
+        try:
+            task_request = TaskRequest(
+                request=str(data.get("request", "")).strip(),
+                project_root=str(data.get("project_root", "")).strip(),
+                mode=RunMode(data.get("mode", RunMode.ASK_BEFORE_CHANGES.value)),
+                chat_model=str(data.get("chat_model", "")),
+                builder_model=str(data.get("builder_model", "")),
+            )
+        except ValueError:
+            return jsonify({"error": "unknown run mode"}), 400
         if not task_request.request or not task_request.project_root:
             return jsonify({"error": "request and project_root are required"}), 400
         record = coordinator.submit(task_request)
@@ -39,4 +50,3 @@ def create_app(coordinator: TaskCoordinator) -> Flask:
         return jsonify({**record.to_json(), "events": [event.to_json() for event in coordinator.store.events(task_id)]})
 
     return app
-

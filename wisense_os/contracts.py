@@ -36,6 +36,16 @@ class ModelProfile:
     supervised_testing_only: bool
     future_local_target: bool = False
 
+    def to_json(self) -> dict[str, Any]:
+        return {
+            "name": self.name,
+            "provider": self.provider.value,
+            "roles": list(self.roles),
+            "available": self.available,
+            "supervised_testing_only": self.supervised_testing_only,
+            "future_local_target": self.future_local_target,
+        }
+
 
 @dataclass(frozen=True)
 class TaskRequest:
@@ -69,4 +79,3 @@ class TaskEvent:
 
     def to_json(self) -> dict[str, Any]:
         return asdict(self)
-
