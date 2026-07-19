@@ -105,6 +105,28 @@ class TaskStore:
         with self._connect() as db:
             db.execute("UPDATE tasks SET status = ?, reason = ? WHERE task_id = ?", (status.value, reason, task_id))
 
+    def mark_interrupted_runs(self) -> list[str]:
+        """Mark work left running by a prior engine process as safely interrupted."""
+        reason = "engine restarted before the task reported a final result"
+        with self._connect() as db:
+            rows = db.execute(
+                "SELECT task_id FROM tasks WHERE status = ?", (TaskStatus.RUNNING.value,)
+            ).fetchall()
+            task_ids = [str(row["task_id"]) for row in rows]
+            for task_id in task_ids:
+                db.execute(
+                    "UPDATE tasks SET status = ?, reason = ? WHERE task_id = ?",
+                    (TaskStatus.FAILED.value, reason, task_id),
+                )
+                sequence = db.execute(
+                    "SELECT COALESCE(MAX(sequence), 0) + 1 FROM task_events WHERE task_id = ?", (task_id,)
+                ).fetchone()[0]
+                db.execute(
+                    "INSERT INTO task_events(task_id, sequence, kind, detail) VALUES (?, ?, ?, ?)",
+                    (task_id, sequence, "interrupted", reason),
+                )
+        return task_ids
+
     def append_event(self, task_id: str, kind: str, detail: str) -> TaskEvent:
         with self._connect() as db:
             sequence = db.execute(

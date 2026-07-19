@@ -49,6 +49,14 @@ def test_live_api_exposes_truthful_health_and_model_profiles(tmp_path: Path) -> 
     ]
 
 
+def test_runtime_inventory_marks_unreachable_configured_profiles_unavailable(tmp_path: Path) -> None:
+    app = create_default_app(tmp_path / "state", runtime_model_names={"glm-5.2:cloud"})
+    models = {item["name"]: item for item in app.test_client().get("/api/v1/models").get_json()["models"]}
+
+    assert models["glm-5.2:cloud"]["available"] is True
+    assert models["gemma4:31b-cloud"]["available"] is False
+
+
 def test_unknown_mode_is_rejected_before_task_creation(tmp_path: Path) -> None:
     app = create_default_app(tmp_path / "state")
 
@@ -162,6 +170,30 @@ def test_waiting_task_can_persist_an_evidence_backed_plan_before_handoff(tmp_pat
 
 def test_construction_never_invokes_an_executor(tmp_path: Path) -> None:
     create_default_app(tmp_path / "state")
+
+
+def test_engine_restart_marks_running_work_as_interrupted(tmp_path: Path) -> None:
+    app = create_default_app(tmp_path / "state")
+    client = app.test_client()
+    root = tmp_path / "project"
+    root.mkdir()
+    task = client.post("/api/v1/tasks", json={
+        "request": "Fix a test", "project_root": str(root),
+        "mode": "ask_before_changes", "chat_model": "glm-5.2:cloud",
+        "builder_model": "gemma4:31b-cloud",
+    }).get_json()
+    app.config["TESTING"] = True
+    # Simulate a process ending after the task entered its execution state.
+    from wisense_os.contracts import TaskStatus
+    from wisense_os.store import TaskStore
+    state = TaskStore(tmp_path / "state" / "engine_state.db")
+    state.update_status(task["task_id"], TaskStatus.RUNNING)
+
+    recovered = create_default_app(tmp_path / "state").test_client().get(f"/api/v1/tasks/{task['task_id']}")
+
+    assert recovered.get_json()["status"] == "failed"
+    assert recovered.get_json()["reason"] == "engine restarted before the task reported a final result"
+    assert recovered.get_json()["events"][-1]["kind"] == "interrupted"
 
 
 def test_live_api_refuses_cloud_builder_for_local_autopilot(tmp_path: Path) -> None:

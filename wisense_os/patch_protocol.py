@@ -63,11 +63,13 @@ def parse_patch_candidate(raw: str, plan: TaskPlan) -> PatchCandidate:
 
 def apply_candidate(snapshot: WorkspaceSnapshot, candidate: PatchCandidate) -> None:
     """Write the validated candidate only inside the exact snapshot scope."""
-    expected = set(snapshot.files)
+    expected = set(snapshot.reviewed_paths)
     if set(candidate.files) != expected:
         raise WorkspacePlanError("candidate does not match snapshotted file scope")
     for relative, content in candidate.files.items():
         target = (snapshot.root / relative).resolve()
         if snapshot.root not in target.parents:
             raise WorkspacePlanError(f"candidate path escapes project root: {relative}")
+        if not target.parent.is_dir():
+            raise WorkspacePlanError(f"candidate parent does not exist: {relative}")
         target.write_text(content, encoding="utf-8", newline="\n")

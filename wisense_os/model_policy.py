@@ -6,6 +6,7 @@ available for supervised testing without being represented as local.
 
 from __future__ import annotations
 
+from dataclasses import replace
 import json
 from pathlib import Path
 
@@ -44,6 +45,13 @@ class ModelRegistry:
 
     def profiles(self) -> tuple[ModelProfile, ...]:
         return tuple(self._profiles[name] for name in sorted(self._profiles))
+
+    def with_runtime_availability(self, runtime_models: set[str]) -> "ModelRegistry":
+        """Return configured profiles filtered by the names Ollama can currently see."""
+        return ModelRegistry({
+            name: replace(profile, available=profile.available and name in runtime_models)
+            for name, profile in self._profiles.items()
+        })
 
     def validate(self, request: TaskRequest) -> None:
         chat = self.get(request.chat_model)

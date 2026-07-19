@@ -3,9 +3,9 @@
 WiSense OS is the single desktop AI workspace planned in
 [`WISENSE_OS_MASTER_PLAN.md`](WISENSE_OS_MASTER_PLAN.md).
 
-This first foundation deliberately does not replace Local Agent Work Center.
-It provides a durable task ledger, truthful model policy, and a narrow HTTP
-bridge boundary so the future Flutter client has one task lifecycle to use.
+WiSense owns its own durable task ledger, model policy, native model adapter,
+exact-plan patch executor, snapshot restore, and local API. It does not call,
+import, launch, or depend on any older project at runtime.
 
 ## Current testing profiles
 
@@ -14,8 +14,8 @@ bridge boundary so the future Flutter client has one task lifecycle to use.
 - `glm-5.2:cloud`: supervised cloud chat/planning/builder test profile.
 
 `local_autopilot` is intentionally refused until a local builder has been
-installed and qualified. Tests use a fake bridge and never call a model or
-modify a project.
+installed and qualified. Tests use fake native adapters and never call a model
+or modify a real project.
 
 ## Run tests
 

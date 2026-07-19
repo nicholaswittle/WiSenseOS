@@ -103,6 +103,25 @@ def test_execute_is_idempotent_and_never_delegates_twice(tmp_path: Path) -> None
     assert len(executor.calls) == 1
 
 
+def test_executor_evidence_is_persisted_before_completed_status(tmp_path: Path) -> None:
+    coordinator, executor = make_coordinator(tmp_path)
+    waiting = coordinator.submit(request())
+    review_plan(coordinator, waiting.task_id)
+    coordinator.approve(waiting.task_id)
+    executor.reply = "validated, uncommitted"
+    executor.run = lambda _request, _plan: {
+        "reply": executor.reply,
+        "changed_files": ["app.py", "test_app.py"],
+        "verification": "named test passed: test_app.py",
+    }
+
+    coordinator.execute(waiting.task_id)
+
+    assert [event.kind for event in coordinator.store.events(waiting.task_id)][-3:] == [
+        "files_changed", "verification", "completed",
+    ]
+
+
 def test_approval_is_single_use_and_does_not_run_a_model(tmp_path: Path) -> None:
     coordinator, executor = make_coordinator(tmp_path)
     waiting = coordinator.submit(request())
@@ -157,7 +176,7 @@ def test_executor_response_blocks_a_second_handoff(tmp_path: Path) -> None:
     try:
         coordinator.approve(second.task_id)
     except ValueError as exc:
-        assert "another task is awaiting a Work Center response" in str(exc)
+        assert "another task is awaiting an Engine response" in str(exc)
     else:
         raise AssertionError("a second handoff must not overwrite the provider conversation")
     assert executor.calls == [request()]

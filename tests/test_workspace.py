@@ -40,3 +40,32 @@ def test_plan_rejects_missing_or_duplicate_edit_targets(tmp_path: Path) -> None:
         validate_plan_files(tmp_path, plan("missing.py"))
     with pytest.raises(WorkspacePlanError, match="duplicate"):
         validate_plan_files(tmp_path, plan("api.py", "api.py"))
+
+
+def test_create_plan_removes_only_the_new_declared_file_on_restore(tmp_path: Path) -> None:
+    existing = tmp_path / "app.py"
+    existing.write_text("before", encoding="utf-8")
+    task_plan = TaskPlan(
+        "Add fixture", "test", ("app.py", "test_app.py"), ("contract",), ("acceptance",),
+        create_files=("test_app.py",),
+    )
+
+    snapshot = snapshot_reviewed_files(tmp_path, task_plan)
+    existing.write_text("after", encoding="utf-8")
+    created = tmp_path / "test_app.py"
+    created.write_text("new fixture", encoding="utf-8")
+    restore_snapshot(snapshot)
+
+    assert existing.read_text(encoding="utf-8") == "before"
+    assert not created.exists()
+
+
+def test_create_plan_refuses_existing_target_or_missing_parent(tmp_path: Path) -> None:
+    (tmp_path / "app.py").write_text("x", encoding="utf-8")
+    existing = TaskPlan("Create", "test", ("app.py",), ("contract",), ("acceptance",), create_files=("app.py",))
+    missing_parent = TaskPlan("Create", "test", ("new/test_app.py",), ("contract",), ("acceptance",), create_files=("new/test_app.py",))
+
+    with pytest.raises(WorkspacePlanError, match="already exists"):
+        validate_plan_files(tmp_path, existing)
+    with pytest.raises(WorkspacePlanError, match="parent does not exist"):
+        validate_plan_files(tmp_path, missing_parent)

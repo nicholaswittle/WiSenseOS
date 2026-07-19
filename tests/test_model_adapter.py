@@ -32,3 +32,19 @@ def test_redactor_handles_unquoted_environment_style_assignments() -> None:
 def test_adapter_rejects_missing_model_content() -> None:
     with pytest.raises(ModelAdapterError, match="no chat content"):
         OllamaChatAdapter(transport=lambda _request, _timeout: b"{}").complete([], model="glm-5.2:cloud")
+
+
+def test_adapter_discovers_only_names_reported_by_loopback_ollama() -> None:
+    adapter = OllamaChatAdapter(transport=lambda request, _timeout: (
+        b'{"models":[{"name":"gemma4:31b-cloud"},{"name":"glm-5.2:cloud"}]}'
+        if request.full_url.endswith("/api/tags") else b"{}"
+    ))
+
+    assert adapter.available_models() == {"gemma4:31b-cloud", "glm-5.2:cloud"}
+
+
+def test_adapter_reports_no_available_models_when_loopback_is_unreachable() -> None:
+    def unavailable(_request, _timeout: float) -> bytes:
+        raise OSError("offline")
+
+    assert OllamaChatAdapter(transport=unavailable).available_models() == set()

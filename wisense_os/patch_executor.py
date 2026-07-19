@@ -9,10 +9,10 @@ import sys
 from typing import Protocol
 
 from .contracts import TaskRequest
-from .model_adapter import ChatModel
+from .model_adapter import ChatModel, ModelAdapterError
 from .patch_protocol import PatchProtocolError, apply_candidate, parse_patch_candidate
 from .plan import TaskPlan
-from .workspace import WorkspacePlanError, restore_snapshot, snapshot_reviewed_files, validate_plan_files
+from .workspace import WorkspacePlanError, WorkspaceSnapshot, restore_snapshot, snapshot_reviewed_files, validate_plan_files
 
 
 class TestRunner(Protocol):
@@ -51,14 +51,49 @@ class PlanBoundPatchExecutor:
             passed, detail = self.test_runner.run(root, test_targets)
             if not passed:
                 restore_snapshot(snapshot)
-                return {"failed": True, "reason": f"reviewed test failed; restored files\n{detail}"}
-        except (OSError, ValueError, PatchProtocolError, WorkspacePlanError, subprocess.TimeoutExpired) as exc:
+                repaired = self._repair_once(request, plan, targets, snapshot, test_targets, detail)
+                if repaired is not None:
+                    return repaired
+                return {"failed": True, "reason": f"reviewed test failed after one repair; restored files\n{detail}"}
+        except (OSError, ValueError, ModelAdapterError, PatchProtocolError, WorkspacePlanError, subprocess.TimeoutExpired) as exc:
             if "snapshot" in locals():
                 restore_snapshot(snapshot)
             return {"failed": True, "reason": f"native plan-bound execution stopped safely: {exc}"}
         return {
             "reply": "validated, uncommitted: reviewed files changed and named tests passed",
             "changed_files": list(plan.files),
+            "verification": f"named tests passed on first attempt: {', '.join(test_targets)}",
+        }
+
+    def _repair_once(
+        self,
+        request: TaskRequest,
+        plan: TaskPlan,
+        targets: tuple[Path, ...],
+        snapshot: object,
+        test_targets: tuple[str, ...],
+        failure_detail: str,
+    ) -> dict[str, object] | None:
+        """Make at most one evidence-grounded repair after a named test failure."""
+        if not isinstance(snapshot, WorkspaceSnapshot):
+            raise WorkspacePlanError("invalid workspace snapshot")
+        raw = self.model.complete(
+            _build_repair_messages(request, plan, targets, failure_detail), model=request.builder_model,
+        )
+        candidate = parse_patch_candidate(raw, plan)
+        apply_candidate(snapshot, candidate)
+        passed, repair_detail = self.test_runner.run(snapshot.root, test_targets)
+        if not passed:
+            restore_snapshot(snapshot)
+            return {
+                "failed": True,
+                "reason": f"reviewed test failed after one repair; restored files\n{repair_detail}",
+            }
+        return {
+            "reply": "validated, uncommitted: reviewed files changed and named tests passed after one repair",
+            "changed_files": list(plan.files),
+            "verification": f"named tests passed after one repair: {', '.join(test_targets)}",
+            "repair_evidence": repair_detail[-2_000:],
         }
 
     def continue_conversation(self, request: TaskRequest, message: str) -> dict[str, object]:
@@ -87,3 +122,23 @@ def _build_messages(request: TaskRequest, plan: TaskPlan, targets: tuple[Path, .
             ),
         },
     ]
+
+
+def _build_repair_messages(
+    request: TaskRequest, plan: TaskPlan, targets: tuple[Path, ...], failure_detail: str,
+) -> list[dict[str, str]]:
+    """Ask for one exact-scope repair using only the named test's evidence."""
+    messages = _build_messages(request, plan, targets)
+    messages[0] = {
+        "role": "system",
+        "content": (
+            "You are WiSense's one allowed repair attempt. Reply ONLY with JSON: "
+            '{"files":[{"path":"reviewed/path.py","content":"complete file content"}]}. '
+            "Repair only the reviewed files using the named-test failure below. No markdown, prose, or extra files."
+        ),
+    }
+    messages.append({
+        "role": "user",
+        "content": f"Named test failure from the first candidate:\n{failure_detail[-12_000:]}",
+    })
+    return messages

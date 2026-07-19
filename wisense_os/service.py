@@ -76,7 +76,7 @@ class TaskCoordinator:
             active_provider_turn = self.store.provider_input_waiting_task(exclude_task_id=task_id)
             if active_provider_turn is not None:
                 raise ValueError(
-                    "another task is awaiting a Work Center response; finish or cancel "
+                    "another task is awaiting an Engine response; finish or cancel "
                     f"task {active_provider_turn.task_id} before approving a new handoff"
                 )
             self.store.update_status(task_id, TaskStatus.ACCEPTED)
@@ -131,7 +131,7 @@ class TaskCoordinator:
             return self.store.get(task_id)  # type: ignore[return-value]
 
     def continue_with_provider_input(self, task_id: str, message: str) -> TaskRecord:
-        """Forward a deliberate user response to an existing Work Center turn."""
+        """Forward a deliberate user response to an existing Engine turn."""
         clean_message = message.strip()
         if not clean_message:
             raise ValueError("provider input is required")
@@ -142,7 +142,7 @@ class TaskCoordinator:
             if record.status != TaskStatus.WAITING_FOR_PROVIDER_INPUT:
                 raise ValueError(f"task is not awaiting provider input: {record.status.value}")
             self.store.update_status(task_id, TaskStatus.RUNNING)
-            self.store.append_event(task_id, "provider_input_submitted", "user sent an explicit response to Work Center")
+            self.store.append_event(task_id, "provider_input_submitted", "user sent an explicit response to the Engine")
             try:
                 result = self.executor.continue_conversation(record.request, clean_message)
             except Exception as exc:
@@ -163,10 +163,16 @@ class TaskCoordinator:
             self.store.update_status(task_id, TaskStatus.FAILED, reason)
             self.store.append_event(task_id, "failed", reason)
             return
+        changed_files = result.get("changed_files")
+        if isinstance(changed_files, list) and all(isinstance(path, str) for path in changed_files):
+            self.store.append_event(task_id, "files_changed", ", ".join(changed_files))
+        verification = result.get("verification")
+        if isinstance(verification, str) and verification:
+            self.store.append_event(task_id, "verification", verification)
         reply = str(result.get("reply", "engine returned no reply"))
         if _provider_needs_input(reply):
             self.store.update_status(task_id, TaskStatus.WAITING_FOR_PROVIDER_INPUT, reply)
-            self.store.append_event(task_id, "provider_input_required", "Work Center requires an explicit user response")
+            self.store.append_event(task_id, "provider_input_required", "Engine requires an explicit user response")
             return
         self.store.update_status(task_id, TaskStatus.COMPLETED, reply)
         self.store.append_event(task_id, "completed", "engine response recorded")

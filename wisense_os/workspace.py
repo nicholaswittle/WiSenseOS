@@ -23,6 +23,8 @@ class FileSnapshot:
 class WorkspaceSnapshot:
     root: Path
     files: Mapping[str, FileSnapshot]
+    reviewed_paths: tuple[str, ...]
+    created: tuple[str, ...] = ()
 
 
 def validate_plan_files(project_root: Path, plan: TaskPlan) -> tuple[Path, ...]:
@@ -32,6 +34,9 @@ def validate_plan_files(project_root: Path, plan: TaskPlan) -> tuple[Path, ...]:
         raise WorkspacePlanError("project root is not an existing directory")
     if not plan.files:
         raise WorkspacePlanError("reviewed plan has no files")
+    create_paths = set(plan.create_files)
+    if len(create_paths) != len(plan.create_files) or not create_paths.issubset(set(plan.files)):
+        raise WorkspacePlanError("reviewed create paths must be distinct declared plan files")
     seen: set[str] = set()
     resolved: list[Path] = []
     for relative in plan.files:
@@ -45,7 +50,12 @@ def validate_plan_files(project_root: Path, plan: TaskPlan) -> tuple[Path, ...]:
         target = (root / candidate).resolve()
         if root not in target.parents:
             raise WorkspacePlanError(f"reviewed path escapes project root: {relative}")
-        if not target.is_file():
+        if relative in create_paths:
+            if target.exists():
+                raise WorkspacePlanError(f"reviewed create target already exists: {relative}")
+            if not target.parent.is_dir():
+                raise WorkspacePlanError(f"reviewed create parent does not exist: {relative}")
+        elif not target.is_file():
             raise WorkspacePlanError(f"reviewed edit target does not exist: {relative}")
         seen.add(key)
         resolved.append(target)
@@ -60,8 +70,10 @@ def snapshot_reviewed_files(project_root: Path, plan: TaskPlan) -> WorkspaceSnap
         root=root,
         files={
             target.relative_to(root).as_posix(): FileSnapshot(True, target.read_bytes())
-            for target in targets
+            for target in targets if target.is_file()
         },
+        reviewed_paths=tuple(target.relative_to(root).as_posix() for target in targets),
+        created=tuple(plan.create_files),
     )
 
 
@@ -74,3 +86,11 @@ def restore_snapshot(snapshot: WorkspaceSnapshot) -> None:
         if saved.existed:
             target.parent.mkdir(parents=True, exist_ok=True)
             target.write_bytes(saved.content)
+    for relative in snapshot.created:
+        target = (snapshot.root / relative).resolve()
+        if snapshot.root not in target.parents:
+            raise WorkspacePlanError(f"snapshot path escapes project root: {relative}")
+        if target.exists():
+            if not target.is_file():
+                raise WorkspacePlanError(f"created target is no longer a file: {relative}")
+            target.unlink()

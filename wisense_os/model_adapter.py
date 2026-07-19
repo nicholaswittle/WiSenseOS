@@ -71,6 +71,22 @@ class OllamaChatAdapter:
             raise ModelAdapterError("Ollama returned no chat content")
         return content
 
+    def available_models(self, timeout_seconds: float = 2.0) -> set[str]:
+        """Return names reported by the loopback Ollama runtime, or none on failure."""
+        request = Request(f"{self.base_url.rstrip('/')}/api/tags", method="GET")
+        try:
+            raw = (self.transport or _urlopen_bytes)(request, timeout_seconds)
+            response = json.loads(raw.decode("utf-8"))
+            models = response.get("models")
+        except (OSError, UnicodeDecodeError, json.JSONDecodeError, AttributeError):
+            return set()
+        if not isinstance(models, list):
+            return set()
+        return {
+            row["name"] for row in models
+            if isinstance(row, dict) and isinstance(row.get("name"), str) and row["name"]
+        }
+
 
 def _urlopen_bytes(request: Request, timeout_seconds: float) -> bytes:
     with urlopen(request, timeout=timeout_seconds) as response:  # nosec: loopback operator-configured endpoint

@@ -24,10 +24,11 @@ class TaskPlan:
     api_contract: tuple[str, ...]
     acceptance: tuple[str, ...]
     source: str = "evidence"
+    create_files: tuple[str, ...] = ()
 
     def to_json(self) -> dict[str, Any]:
         data = asdict(self)
-        for name in ("files", "api_contract", "acceptance"):
+        for name in ("files", "api_contract", "acceptance", "create_files"):
             data[name] = list(data[name])
         return data
 
@@ -44,7 +45,13 @@ class TaskPlan:
         source = payload.get("source", "evidence")
         if not all(isinstance(value, str) and value.strip() for value in (title, summary, source)):
             raise ValueError("invalid task plan text")
-        return cls(title, summary, text_list("files"), text_list("api_contract"), text_list("acceptance"), source)
+        create_files = payload.get("create_files", [])
+        if not isinstance(create_files, list) or not all(isinstance(item, str) for item in create_files):
+            raise ValueError("invalid task plan create_files")
+        return cls(
+            title, summary, text_list("files"), text_list("api_contract"), text_list("acceptance"),
+            source, tuple(create_files),
+        )
 
 
 @dataclass(frozen=True)

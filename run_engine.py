@@ -10,6 +10,7 @@ import argparse
 from pathlib import Path
 
 from wisense_os.bootstrap import create_default_app
+from wisense_os.model_adapter import OllamaChatAdapter
 
 
 def main() -> None:
@@ -18,7 +19,12 @@ def main() -> None:
     parser.add_argument("--state-dir", type=Path, default=None)
     args = parser.parse_args()
 
-    app = create_default_app(args.state_dir)
+    adapter = OllamaChatAdapter()
+    app = create_default_app(
+        args.state_dir,
+        model_adapter=adapter,
+        runtime_model_names=adapter.available_models(),
+    )
     app.run(host="127.0.0.1", port=args.port, debug=False)
 
 
