@@ -19,6 +19,26 @@ _SECRET_ASSIGNMENT = re.compile(
     r"(?:api[_-]?key|token|secret|password|passwd))\b\s*([:=])\s*([^\s#]+)"
 )
 
+_PATCH_RESPONSE_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "files": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "path": {"type": "string"},
+                    "content": {"type": "string"},
+                },
+                "required": ["path", "content"],
+                "additionalProperties": False,
+            },
+        },
+    },
+    "required": ["files"],
+    "additionalProperties": False,
+}
+
 
 class ModelAdapterError(RuntimeError):
     """The local Ollama service did not return a usable model response."""
@@ -53,7 +73,7 @@ class OllamaChatAdapter:
         payload = json.dumps({
             "model": model,
             "messages": redact_messages(messages),
-            "format": "json",
+            "format": _PATCH_RESPONSE_SCHEMA,
             "stream": False,
         }).encode("utf-8")
         request = Request(
