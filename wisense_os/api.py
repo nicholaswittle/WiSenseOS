@@ -8,6 +8,7 @@ from pathlib import Path
 
 from flask import Flask, jsonify, request
 
+from .agentic_explore import is_cloud_model, locate_target_with_exploration
 from .context import generate_project_context, read_project_context
 from .contracts import RunMode, TaskRequest, TaskStatus
 from .explore import explore_project
@@ -317,6 +318,29 @@ def create_app(coordinator: TaskCoordinator, *, auth_token: str | None = None) -
             # existing file whose test can be located. The user still
             # reviews these exact files before approval.
             result = draft_edit_plan(record.request.request, project_root)
+        if (not result.ok or result.plan is None) and project_root.is_dir():
+            # Optional local agentic locate when the deterministic ladder misses.
+            adapter = getattr(coordinator.executor, "model", None)
+            tool_fn = getattr(adapter, "complete_with_tools", None)
+            chat_model = record.request.chat_model
+            if callable(tool_fn) and not is_cloud_model(chat_model):
+                located = locate_target_with_exploration(
+                    record.request.request,
+                    project_root,
+                    chat_model,
+                    chat_resp_fn=tool_fn,
+                )
+                if located.ok:
+                    rewritten = (
+                        f"{record.request.request} (target file: {located.target_file})"
+                    )
+                    result = draft_edit_plan(rewritten, project_root)
+                    if result.ok and result.plan is not None:
+                        coordinator.store.append_event(
+                            task_id,
+                            "target_located",
+                            f"{located.target_file} ({located.reason or 'agentic locate'})",
+                        )
         if not result.ok or result.plan is None:
             payload = {
                 "ok": False,

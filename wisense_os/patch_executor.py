@@ -245,6 +245,34 @@ class PlanBoundPatchExecutor:
 
     def chat(self, request: TaskRequest) -> dict[str, object]:
         """Talk-only path: answer with the chat model; never write project files."""
+        from .agentic_explore import answer_with_exploration, is_cloud_model
+        from .explore import explore_project
+
+        root = Path(request.project_root)
+        envelope = explore_project(root, request.request) if root.is_dir() else None
+        tool_capable = getattr(self.model, "complete_with_tools", None)
+        if callable(tool_capable) and not is_cloud_model(request.chat_model):
+            explored = answer_with_exploration(
+                request.request,
+                root,
+                request.chat_model,
+                chat_resp_fn=tool_capable,
+            )
+            if explored.ok:
+                return {
+                    "reply": explored.answer,
+                    "tool_trace": list(explored.tool_trace),
+                    "context": envelope.to_json() if envelope is not None else None,
+                }
+
+        context_block = ""
+        if envelope is not None and envelope.snippets:
+            bits = [
+                f"[{s.path}:{s.start_line}]\n{s.text}"
+                for s in envelope.snippets[:3]
+            ]
+            context_block = "Verified snippets:\n" + "\n\n".join(bits) + "\n\n"
+
         try:
             complete = getattr(self.model, "complete_text", None)
             if callable(complete):
@@ -255,13 +283,15 @@ class PlanBoundPatchExecutor:
                             "content": (
                                 "You are WiSense in Talk Only mode. Explain, research, audit, "
                                 "and inspect. Do not propose shell commands that modify files. "
-                                "Do not claim you changed any project files."
+                                "Do not claim you changed any project files. Prefer citing "
+                                "verified snippets when present."
                             ),
                         },
                         {
                             "role": "user",
                             "content": (
                                 f"Project root: {request.project_root}\n\n"
+                                f"{context_block}"
                                 f"Request: {request.request}"
                             ),
                         },
@@ -278,7 +308,10 @@ class PlanBoundPatchExecutor:
                 )
         except (OSError, ValueError, ModelAdapterError) as exc:
             return {"failed": True, "reason": f"talk-only chat stopped safely: {exc}"}
-        return {"reply": reply}
+        return {
+            "reply": reply,
+            "context": envelope.to_json() if envelope is not None else None,
+        }
 
     def continue_conversation(self, request: TaskRequest, message: str) -> dict[str, object]:
         return {"blocked": True, "reason": "native patch execution has no conversational continuation"}
