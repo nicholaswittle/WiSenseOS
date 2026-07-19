@@ -12,23 +12,6 @@ from .model_policy import ModelPolicyError, ModelRegistry
 from .store import TaskStore
 
 
-def _provider_needs_input(reply: str) -> bool:
-    """Conservative adapter until the native executor exposes typed pending state.
-
-    A false positive merely asks the user to continue; a false negative could
-    mislabel an approval or clarification as completed, so the recognizer is
-    intentionally broad for question-shaped replies.
-    """
-    normalized = reply.strip().lower()
-    return (
-        "go ahead" in normalized
-        or "what should the new file be called" in normalized
-        or "which file" in normalized
-        or "files match" in normalized
-        or normalized.endswith("?")
-    )
-
-
 class TaskCoordinator:
     def __init__(self, store: TaskStore, models: ModelRegistry, executor: TaskExecutor) -> None:
         self.store = store
@@ -170,8 +153,14 @@ class TaskCoordinator:
         if isinstance(verification, str) and verification:
             self.store.append_event(task_id, "verification", verification)
         reply = str(result.get("reply", "engine returned no reply"))
-        if _provider_needs_input(reply):
-            self.store.update_status(task_id, TaskStatus.WAITING_FOR_PROVIDER_INPUT, reply)
+        # Typed pending state, NEVER inferred from reply text. The executor
+        # must explicitly declare that it needs another user turn; the
+        # coordinator does not read the reply to guess lifecycle state.
+        # (The former string-matcher mislabeled any reply ending in "?" as
+        # pending -- the exact regex-guessing this project rejects.)
+        if result.get("pending_input") is True:
+            prompt = str(result.get("pending_prompt") or reply)
+            self.store.update_status(task_id, TaskStatus.WAITING_FOR_PROVIDER_INPUT, prompt)
             self.store.append_event(task_id, "provider_input_required", "Engine requires an explicit user response")
             return
         self.store.update_status(task_id, TaskStatus.COMPLETED, reply)

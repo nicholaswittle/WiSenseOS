@@ -15,10 +15,13 @@ class FakeExecutor:
         self.follow_ups: list[str] = []
         self.reply = "Done -- committed the change to example.py."
         self.follow_up_reply = "Done -- committed the change to example.py."
+        # Typed pending signal -- the executor declares it explicitly; the
+        # coordinator never guesses from reply text.
+        self.pending_input = False
 
     def run(self, request: TaskRequest, _plan: TaskPlan) -> dict[str, object]:
         self.calls.append(request)
-        return {"reply": self.reply}
+        return {"reply": self.reply, "pending_input": self.pending_input}
 
     def continue_conversation(self, request: TaskRequest, message: str) -> dict[str, object]:
         self.calls.append(request)
@@ -140,7 +143,8 @@ def test_approval_is_single_use_and_does_not_run_a_model(tmp_path: Path) -> None
 
 def test_executor_confirmation_is_a_durable_second_gate(tmp_path: Path) -> None:
     coordinator, executor = make_coordinator(tmp_path)
-    executor.reply = "This action needs your explicit response -- go ahead?"
+    executor.reply = "This action needs your explicit response."
+    executor.pending_input = True
     waiting = coordinator.submit(request())
     review_plan(coordinator, waiting.task_id)
 
@@ -165,7 +169,8 @@ def test_executor_confirmation_is_a_durable_second_gate(tmp_path: Path) -> None:
 
 def test_executor_response_blocks_a_second_handoff(tmp_path: Path) -> None:
     coordinator, executor = make_coordinator(tmp_path)
-    executor.reply = "This action needs your explicit response -- go ahead?"
+    executor.reply = "This action needs your explicit response."
+    executor.pending_input = True
     first = coordinator.submit(request())
     second = coordinator.submit(request())
     review_plan(coordinator, first.task_id)
@@ -184,7 +189,8 @@ def test_executor_response_blocks_a_second_handoff(tmp_path: Path) -> None:
 
 def test_canceling_provider_follow_up_releases_the_next_handoff(tmp_path: Path) -> None:
     coordinator, executor = make_coordinator(tmp_path)
-    executor.reply = "This action needs your explicit response -- go ahead?"
+    executor.reply = "This action needs your explicit response."
+    executor.pending_input = True
     first = coordinator.submit(request())
     second = coordinator.submit(request())
     review_plan(coordinator, first.task_id)
@@ -198,3 +204,27 @@ def test_canceling_provider_follow_up_releases_the_next_handoff(tmp_path: Path) 
     assert canceled.status == TaskStatus.CANCELED
     assert approved_second.status == TaskStatus.ACCEPTED
     assert coordinator.store.events(first.task_id)[-1].kind == "canceled"
+
+
+def test_pending_state_is_typed_not_inferred_from_reply_text(tmp_path: Path) -> None:
+    coordinator, executor = make_coordinator(tmp_path)
+
+    # 1) A question-shaped reply with NO typed flag must COMPLETE -- the
+    # former "any reply ending in ?" heuristic is gone.
+    executor.reply = "Should I have done more? Anyway, it is committed."
+    executor.pending_input = False
+    first = coordinator.submit(request())
+    review_plan(coordinator, first.task_id)
+    coordinator.approve(first.task_id)
+    assert coordinator.execute(first.task_id).status == TaskStatus.COMPLETED
+
+    # 2) The typed flag alone drives the pending state, even for a reply
+    # that is not question-shaped; the reply becomes the prompt.
+    executor.reply = "Choose a target."
+    executor.pending_input = True
+    second = coordinator.submit(request())
+    review_plan(coordinator, second.task_id)
+    coordinator.approve(second.task_id)
+    pending = coordinator.execute(second.task_id)
+    assert pending.status == TaskStatus.WAITING_FOR_PROVIDER_INPUT
+    assert (pending.reason or "") == "Choose a target."
