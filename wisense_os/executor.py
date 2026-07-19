@@ -11,10 +11,11 @@ from dataclasses import dataclass
 from typing import Protocol
 
 from .contracts import TaskRequest
+from .plan import TaskPlan
 
 
 class TaskExecutor(Protocol):
-    def run(self, request: TaskRequest) -> dict[str, object]: ...
+    def run(self, request: TaskRequest, plan: TaskPlan) -> dict[str, object]: ...
 
     def continue_conversation(self, request: TaskRequest, message: str) -> dict[str, object]: ...
 
@@ -23,7 +24,7 @@ class TaskExecutor(Protocol):
 class NativeTaskExecutor:
     """Fail closed until WiSense owns its model-to-patch implementation."""
 
-    def run(self, request: TaskRequest) -> dict[str, object]:
+    def run(self, request: TaskRequest, plan: TaskPlan) -> dict[str, object]:
         return {
             "blocked": True,
             "reason": "native plan-bound patch execution is not enabled yet",

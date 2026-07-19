@@ -7,6 +7,7 @@ from uuid import uuid4
 
 from .contracts import RunMode, TaskRecord, TaskRequest, TaskStatus
 from .executor import TaskExecutor
+from .plan import TaskPlan
 from .model_policy import ModelPolicyError, ModelRegistry
 from .store import TaskStore
 
@@ -119,7 +120,9 @@ class TaskCoordinator:
             self.store.update_status(task_id, TaskStatus.RUNNING)
             self.store.append_event(task_id, "executing", "delegating to the native WiSense executor")
             try:
-                result = self.executor.run(record.request)
+                saved_plan = self.store.plan(task_id)
+                assert saved_plan is not None
+                result = self.executor.run(record.request, TaskPlan.from_json(saved_plan))
             except Exception as exc:
                 self.store.update_status(task_id, TaskStatus.FAILED, f"native executor failed: {exc}")
                 self.store.append_event(task_id, "failed", "native executor failed before a result was recorded")
@@ -154,6 +157,11 @@ class TaskCoordinator:
             reason = str(result.get("reason", "native execution is unavailable"))
             self.store.update_status(task_id, TaskStatus.BLOCKED, reason)
             self.store.append_event(task_id, "blocked", reason)
+            return
+        if result.get("failed") is True:
+            reason = str(result.get("reason", "native execution failed"))
+            self.store.update_status(task_id, TaskStatus.FAILED, reason)
+            self.store.append_event(task_id, "failed", reason)
             return
         reply = str(result.get("reply", "engine returned no reply"))
         if _provider_needs_input(reply):

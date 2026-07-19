@@ -8,8 +8,9 @@ from pathlib import Path
 from flask import Flask
 
 from .api import create_app
-from .executor import NativeTaskExecutor
+from .model_adapter import OllamaChatAdapter
 from .model_policy import ModelRegistry
+from .patch_executor import PlanBoundPatchExecutor, PytestRunner
 from .service import TaskCoordinator
 from .store import TaskStore
 
@@ -34,6 +35,6 @@ def create_default_app(state_dir: Path | None = None) -> Flask:
     coordinator = TaskCoordinator(
         store=TaskStore(resolved_state_dir / "engine_state.db"),
         models=models,
-        executor=NativeTaskExecutor(),
+        executor=PlanBoundPatchExecutor(OllamaChatAdapter(), PytestRunner()),
     )
     return create_app(coordinator)

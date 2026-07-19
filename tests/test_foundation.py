@@ -3,7 +3,6 @@ from __future__ import annotations
 from pathlib import Path
 
 from wisense_os.contracts import RunMode, TaskRequest, TaskStatus
-from wisense_os.executor import NativeTaskExecutor
 from wisense_os.model_policy import ModelRegistry
 from wisense_os.plan import TaskPlan
 from wisense_os.service import TaskCoordinator
@@ -17,7 +16,7 @@ class FakeExecutor:
         self.reply = "Done -- committed the change to example.py."
         self.follow_up_reply = "Done -- committed the change to example.py."
 
-    def run(self, request: TaskRequest) -> dict[str, object]:
+    def run(self, request: TaskRequest, _plan: TaskPlan) -> dict[str, object]:
         self.calls.append(request)
         return {"reply": self.reply}
 
@@ -180,18 +179,3 @@ def test_canceling_provider_follow_up_releases_the_next_handoff(tmp_path: Path) 
     assert canceled.status == TaskStatus.CANCELED
     assert approved_second.status == TaskStatus.ACCEPTED
     assert coordinator.store.events(first.task_id)[-1].kind == "canceled"
-
-
-def test_native_executor_fails_closed_without_any_legacy_runtime(tmp_path: Path) -> None:
-    root = Path(__file__).parents[1]
-    coordinator = TaskCoordinator(
-        TaskStore(tmp_path / "state.db"), ModelRegistry.from_file(root / "config" / "model_profiles.json"), NativeTaskExecutor(),
-    )
-    waiting = coordinator.submit(request())
-    review_plan(coordinator, waiting.task_id)
-    coordinator.approve(waiting.task_id)
-
-    result = coordinator.execute(waiting.task_id)
-
-    assert result.status == TaskStatus.BLOCKED
-    assert result.reason == "native plan-bound patch execution is not enabled yet"

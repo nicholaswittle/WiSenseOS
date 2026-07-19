@@ -10,7 +10,7 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass
 from pathlib import Path
 import re
-from typing import Any
+from typing import Any, Mapping
 
 
 _ENDPOINT = re.compile(r"\b(GET|POST|PUT|PATCH|DELETE)\s+`?(/api/v\d+/[\w/-]+)`?", re.IGNORECASE)
@@ -30,6 +30,21 @@ class TaskPlan:
         for name in ("files", "api_contract", "acceptance"):
             data[name] = list(data[name])
         return data
+
+    @classmethod
+    def from_json(cls, payload: Mapping[str, object]) -> "TaskPlan":
+        def text_list(name: str) -> tuple[str, ...]:
+            value = payload.get(name)
+            if not isinstance(value, list) or not all(isinstance(item, str) for item in value):
+                raise ValueError(f"invalid task plan {name}")
+            return tuple(value)
+
+        title = payload.get("title")
+        summary = payload.get("summary")
+        source = payload.get("source", "evidence")
+        if not all(isinstance(value, str) and value.strip() for value in (title, summary, source)):
+            raise ValueError("invalid task plan text")
+        return cls(title, summary, text_list("files"), text_list("api_contract"), text_list("acceptance"), source)
 
 
 @dataclass(frozen=True)
