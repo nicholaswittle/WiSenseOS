@@ -356,6 +356,14 @@ class _TaskComposerScreenState extends State<TaskComposerScreen> {
                 style: TextStyle(color: color.shade900, fontWeight: FontWeight.w600),
               ),
             ],
+            if (isWaiting || isProviderInput) ...[
+              const SizedBox(height: 8),
+              TextButton.icon(
+                onPressed: controller.canceling ? null : controller.cancelActiveTask,
+                icon: const Icon(Icons.cancel_outlined),
+                label: Text(controller.canceling ? 'Canceling Task...' : 'Cancel Task'),
+              ),
+            ],
 
             if (isWaiting) ...[
               const SizedBox(height: 16),

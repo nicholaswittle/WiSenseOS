@@ -147,3 +147,19 @@ def test_provider_response_blocks_a_second_work_center_handoff(tmp_path: Path) -
     else:
         raise AssertionError("a second handoff must not overwrite the provider conversation")
     assert bridge.calls == [request()]
+
+
+def test_canceling_provider_follow_up_releases_the_next_handoff(tmp_path: Path) -> None:
+    coordinator, bridge = make_coordinator(tmp_path)
+    bridge.reply = "This may spend quota -- go ahead?"
+    first = coordinator.submit(request())
+    second = coordinator.submit(request())
+    coordinator.approve(first.task_id)
+    coordinator.execute(first.task_id)
+
+    canceled = coordinator.cancel(first.task_id)
+    approved_second = coordinator.approve(second.task_id)
+
+    assert canceled.status == TaskStatus.CANCELED
+    assert approved_second.status == TaskStatus.ACCEPTED
+    assert coordinator.store.events(first.task_id)[-1].kind == "canceled"

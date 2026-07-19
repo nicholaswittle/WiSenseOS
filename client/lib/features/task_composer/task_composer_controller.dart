@@ -13,6 +13,7 @@ class TaskComposerController extends ChangeNotifier {
   bool _approving = false;
   bool _sendingProviderInput = false;
   bool _draftingPlan = false;
+  bool _canceling = false;
   String? _error;
   List<EngineProject> _projects = const [];
   List<EngineModelProfile> _models = const [];
@@ -31,6 +32,7 @@ class TaskComposerController extends ChangeNotifier {
   bool get approving => _approving;
   bool get sendingProviderInput => _sendingProviderInput;
   bool get draftingPlan => _draftingPlan;
+  bool get canceling => _canceling;
   String? get error => _error;
   List<EngineProject> get projects => _projects;
   List<EngineModelProfile> get models => _models;
@@ -228,6 +230,28 @@ class TaskComposerController extends ChangeNotifier {
     } catch (e) {
       _draftingPlan = false;
       _error = 'Failed to draft evidence plan: $e';
+      notifyListeners();
+      return null;
+    }
+  }
+
+  Future<EngineTaskStatus?> cancelActiveTask() async {
+    final currentId = _lastSubmissionResult?.taskId;
+    if (currentId == null || currentId.isEmpty || (!isWaitingForApproval && !isWaitingForProviderInput)) {
+      return null;
+    }
+    _canceling = true;
+    _error = null;
+    notifyListeners();
+    try {
+      _lastSubmissionResult = await client.cancelTask(currentId);
+      _activePlan = null;
+      _canceling = false;
+      notifyListeners();
+      return _lastSubmissionResult;
+    } catch (e) {
+      _canceling = false;
+      _error = 'Failed to cancel task: $e';
       notifyListeners();
       return null;
     }

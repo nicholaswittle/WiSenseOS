@@ -83,6 +83,16 @@ def create_app(coordinator: TaskCoordinator) -> Flask:
         Thread(target=coordinator.execute, args=(record.task_id,), daemon=True).start()
         return jsonify(record.to_json()), 202
 
+    @app.post("/api/v1/tasks/<task_id>/cancel")
+    def cancel_task(task_id: str):
+        try:
+            record = coordinator.cancel(task_id)
+        except KeyError:
+            return jsonify({"error": "task not found"}), 404
+        except ValueError as exc:
+            return jsonify({"error": str(exc)}), 409
+        return jsonify(record.to_json()), 200
+
     @app.post("/api/v1/tasks/<task_id>/provider-input")
     def provider_input(task_id: str):
         data = request.get_json(force=True)

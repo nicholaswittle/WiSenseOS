@@ -24,6 +24,7 @@ class TaskStatus(StrEnum):
     RUNNING = "running"
     WAITING_FOR_APPROVAL = "waiting_for_approval"
     WAITING_FOR_PROVIDER_INPUT = "waiting_for_provider_input"
+    CANCELED = "canceled"
     COMPLETED = "completed"
     FAILED = "failed"
 

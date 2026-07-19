@@ -83,6 +83,20 @@ class TaskCoordinator:
             assert approved is not None
             return approved
 
+    def cancel(self, task_id: str) -> TaskRecord:
+        """Discard a waiting task without sending anything to a model."""
+        with self._execution_lock:
+            record = self.store.get(task_id)
+            if record is None:
+                raise KeyError(f"unknown task: {task_id}")
+            if record.status not in {TaskStatus.WAITING_FOR_APPROVAL, TaskStatus.WAITING_FOR_PROVIDER_INPUT}:
+                raise ValueError(f"task cannot be canceled in state: {record.status.value}")
+            self.store.update_status(task_id, TaskStatus.CANCELED, "canceled by user before further handoff")
+            self.store.append_event(task_id, "canceled", "user canceled the pending task")
+            canceled = self.store.get(task_id)
+            assert canceled is not None
+            return canceled
+
     def execute(self, task_id: str) -> TaskRecord:
         record = self.store.get(task_id)
         if record is None:

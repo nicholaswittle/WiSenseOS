@@ -138,6 +138,16 @@ class WiSenseEngineClient {
     return EngineTaskPlan.fromJson(Map<String, dynamic>.from(plan));
   }
 
+  Future<EngineTaskStatus> cancelTask(String taskId) async {
+    final response = await _client.post(
+      _endpoint('/api/v1/tasks/$taskId/cancel'),
+      headers: await _headers(),
+    );
+    final body = _body(response);
+    _requireSuccess(response, body, 'Cancel task');
+    return EngineTaskStatus.fromJson(body, statusCode: response.statusCode);
+  }
+
   Uri _endpoint(String path) =>
       _baseUri.resolve(path.startsWith('/') ? path.substring(1) : path);
 

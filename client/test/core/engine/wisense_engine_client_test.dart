@@ -118,6 +118,20 @@ void main() {
     expect(plan.source, 'evidence');
   });
 
+  test('cancelTask posts only to the task cancellation route', () async {
+    late http.BaseRequest captured;
+    final client = WiSenseEngineClient(client: FakeClient((request) async {
+      captured = request;
+      return http.Response(jsonEncode({'task_id': 'task-5', 'status': 'canceled'}), 200);
+    }));
+
+    final status = await client.cancelTask('task-5');
+
+    expect(captured.method, 'POST');
+    expect(captured.url.path, '/api/v1/tasks/task-5/cancel');
+    expect(status.status, 'canceled');
+  });
+
   test('non-success response throws EngineApiException', () async {
     final client = WiSenseEngineClient(client: FakeClient((_) async =>
         http.Response(jsonEncode({'error': 'bad engine'}), 500)));
