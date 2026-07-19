@@ -7,9 +7,11 @@ class CommandViewScreen extends StatefulWidget {
   const CommandViewScreen({
     super.key,
     required this.controller,
+    this.onSelectTask,
   });
 
   final CommandViewController controller;
+  final ValueChanged<EngineTaskStatus>? onSelectTask;
 
   @override
   State<CommandViewScreen> createState() => _CommandViewScreenState();
@@ -305,6 +307,57 @@ class _CommandViewScreenState extends State<CommandViewScreen> {
             if (task.reason != null && task.reason!.isNotEmpty) ...[
               const SizedBox(height: 8),
               Text(task.reason!),
+            ],
+            if (task.status == 'waiting_for_approval' || task.status == 'waiting_for_provider_input') ...[
+              const SizedBox(height: 12),
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: Colors.amber.shade50,
+                  border: Border.all(color: Colors.amber.shade400, width: 1.5),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Icon(Icons.warning_amber_rounded, color: Colors.amber.shade900),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            task.status == 'waiting_for_approval'
+                                ? 'Task Awaiting Approval!'
+                                : 'Engine Clarification Needed!',
+                            style: TextStyle(
+                              fontWeight: FontWeight.bold,
+                              color: Colors.amber.shade900,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 6),
+                    Text(
+                      task.status == 'waiting_for_approval'
+                          ? 'Review proposal digest and approve handoff to execute changes.'
+                          : 'Engine is waiting for your input to proceed.',
+                      style: TextStyle(fontSize: 12, color: Colors.grey.shade800),
+                    ),
+                    const SizedBox(height: 10),
+                    ElevatedButton.icon(
+                      onPressed: () => widget.onSelectTask?.call(task),
+                      icon: const Icon(Icons.open_in_new),
+                      label: const Text('Open Task to Review & Approve'),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.deepPurple,
+                        foregroundColor: Colors.white,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
             ],
             if (proposal != null) ...[
               const SizedBox(height: 12),

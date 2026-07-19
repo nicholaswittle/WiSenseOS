@@ -286,6 +286,13 @@ def create_app(coordinator: TaskCoordinator, *, auth_token: str | None = None) -
             return jsonify({"error": str(exc)}), 409
         return jsonify(record.to_json()), 200
 
+    @app.delete("/api/v1/tasks/<task_id>")
+    def delete_task_route(task_id: str):
+        deleted = coordinator.store.delete_task(task_id)
+        if not deleted:
+            return jsonify({"error": "task not found"}), 404
+        return jsonify({"ok": True, "deleted_task_id": task_id}), 200
+
     @app.post("/api/v1/tasks/<task_id>/provider-input")
     def provider_input(task_id: str):
         data = request.get_json(force=True)

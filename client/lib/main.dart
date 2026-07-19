@@ -75,7 +75,15 @@ class _WiSenseOSAppState extends State<WiSenseOSApp> {
             EngineStatusScreen(controller: _statusController),
             TaskComposerScreen(controller: _composerController),
             TaskHistoryScreen(controller: _historyController),
-            CommandViewScreen(controller: _commandController),
+            CommandViewScreen(
+              controller: _commandController,
+              onSelectTask: (task) {
+                _historyController.selectTask(task);
+                setState(() {
+                  _currentIndex = 2; // Jump to History tab
+                });
+              },
+            ),
             SOPLibraryScreen(
               controller: _sopController,
               onSelectSOP: (sop) {

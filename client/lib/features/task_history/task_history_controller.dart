@@ -98,4 +98,21 @@ class TaskHistoryController extends ChangeNotifier {
       return null;
     }
   }
+
+  Future<void> deleteTask(String taskId) async {
+    _error = null;
+    notifyListeners();
+
+    try {
+      await client.deleteTask(taskId);
+      if (_selectedTask?.taskId == taskId) {
+        _selectedTask = null;
+        _currentPlan = null;
+      }
+      await loadTasks();
+    } catch (e) {
+      _error = 'Delete task failed: $e';
+      notifyListeners();
+    }
+  }
 }

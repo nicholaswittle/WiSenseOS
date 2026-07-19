@@ -252,3 +252,12 @@ class TaskStore:
         if row is None:
             return None
         return {"digest": row["digest"], "action": row["action"], "mode": row["mode"]}
+
+    def delete_task(self, task_id: str) -> bool:
+        with self._connect() as db:
+            cur = db.execute("DELETE FROM tasks WHERE task_id = ?", (task_id,))
+            db.execute("DELETE FROM task_events WHERE task_id = ?", (task_id,))
+            db.execute("DELETE FROM task_plans WHERE task_id = ?", (task_id,))
+            db.execute("DELETE FROM task_proposals WHERE task_id = ?", (task_id,))
+            db.execute("DELETE FROM task_approvals WHERE task_id = ?", (task_id,))
+            return cur.rowcount > 0
