@@ -5,6 +5,8 @@ import 'features/engine_status/engine_status_controller.dart';
 import 'features/engine_status/engine_status_screen.dart';
 import 'features/task_composer/task_composer_controller.dart';
 import 'features/task_composer/task_composer_screen.dart';
+import 'features/task_history/task_history_controller.dart';
+import 'features/task_history/task_history_screen.dart';
 
 void main() {
   runApp(const WiSenseOSApp());
@@ -28,6 +30,7 @@ class _WiSenseOSAppState extends State<WiSenseOSApp> {
   late final WiSenseEngineClient _client;
   late final EngineStatusController _statusController;
   late final TaskComposerController _composerController;
+  late final TaskHistoryController _historyController;
   int _currentIndex = 0;
 
   @override
@@ -36,12 +39,14 @@ class _WiSenseOSAppState extends State<WiSenseOSApp> {
     _client = widget.client ?? WiSenseEngineClient();
     _statusController = EngineStatusController(client: _client);
     _composerController = TaskComposerController(client: _client);
+    _historyController = TaskHistoryController(client: _client);
   }
 
   @override
   void dispose() {
     _statusController.dispose();
     _composerController.dispose();
+    _historyController.dispose();
     super.dispose();
   }
 
@@ -59,6 +64,7 @@ class _WiSenseOSAppState extends State<WiSenseOSApp> {
           children: [
             EngineStatusScreen(controller: _statusController),
             TaskComposerScreen(controller: _composerController),
+            TaskHistoryScreen(controller: _historyController),
           ],
         ),
         bottomNavigationBar: BottomNavigationBar(
@@ -78,6 +84,11 @@ class _WiSenseOSAppState extends State<WiSenseOSApp> {
               icon: Icon(Icons.edit_note_outlined),
               activeIcon: Icon(Icons.edit_note),
               label: 'Task Composer',
+            ),
+            BottomNavigationBarItem(
+              icon: Icon(Icons.history_outlined),
+              activeIcon: Icon(Icons.history),
+              label: 'Task History',
             ),
           ],
         ),
