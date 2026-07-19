@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 from threading import Thread
+from pathlib import Path
 
 from flask import Flask, jsonify, request
 
-from .contracts import RunMode, TaskRequest
+from .contracts import RunMode, TaskRequest, TaskStatus
+from .plan import draft_evidence_plan
 from .service import TaskCoordinator
 
 
@@ -100,11 +102,28 @@ def create_app(coordinator: TaskCoordinator) -> Flask:
         Thread(target=coordinator.continue_with_provider_input, args=(task_id, message), daemon=True).start()
         return jsonify({**record.to_json(), "status": TaskStatus.RUNNING.value}), 202
 
+    @app.post("/api/v1/tasks/<task_id>/plan-draft")
+    def draft_task_plan(task_id: str):
+        record = coordinator.store.get(task_id)
+        if record is None:
+            return jsonify({"error": "task not found"}), 404
+        if record.status != TaskStatus.WAITING_FOR_APPROVAL:
+            return jsonify({"error": "plan drafting is available only before Engine handoff"}), 409
+        result = draft_evidence_plan(record.request.request, Path(record.request.project_root))
+        if not result.ok or result.plan is None:
+            return jsonify({"ok": False, "reason": result.reason}), 422
+        coordinator.store.save_plan(task_id, result.plan)
+        return jsonify({"ok": True, "task_id": task_id, "plan": result.plan.to_json()})
+
     @app.get("/api/v1/tasks/<task_id>")
     def task_status(task_id: str):
         record = coordinator.store.get(task_id)
         if record is None:
             return jsonify({"error": "task not found"}), 404
-        return jsonify({**record.to_json(), "events": [event.to_json() for event in coordinator.store.events(task_id)]})
+        return jsonify({
+            **record.to_json(),
+            "events": [event.to_json() for event in coordinator.store.events(task_id)],
+            "plan": coordinator.store.plan(task_id),
+        })
 
     return app

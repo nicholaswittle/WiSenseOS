@@ -9,6 +9,7 @@ from uuid import uuid4
 from pathlib import Path
 
 from .contracts import ProjectRecord, RunMode, TaskEvent, TaskRecord, TaskRequest, TaskStatus
+from .plan import TaskPlan
 
 
 class TaskStore:
@@ -40,6 +41,12 @@ class TaskStore:
                     kind TEXT NOT NULL,
                     detail TEXT NOT NULL,
                     PRIMARY KEY (task_id, sequence)
+                )"""
+            )
+            db.execute(
+                """CREATE TABLE IF NOT EXISTS task_plans (
+                    task_id TEXT PRIMARY KEY,
+                    plan_json TEXT NOT NULL
                 )"""
             )
             db.execute(
@@ -156,3 +163,15 @@ class TaskStore:
                 (TaskStatus.WAITING_FOR_PROVIDER_INPUT.value, exclude_task_id),
             ).fetchone()
         return self._record_from_row(row)
+
+    def save_plan(self, task_id: str, plan: TaskPlan) -> None:
+        with self._connect() as db:
+            db.execute(
+                "INSERT OR REPLACE INTO task_plans(task_id, plan_json) VALUES (?, ?)",
+                (task_id, json.dumps(plan.to_json())),
+            )
+
+    def plan(self, task_id: str) -> dict[str, object] | None:
+        with self._connect() as db:
+            row = db.execute("SELECT plan_json FROM task_plans WHERE task_id = ?", (task_id,)).fetchone()
+        return json.loads(row["plan_json"]) if row is not None else None

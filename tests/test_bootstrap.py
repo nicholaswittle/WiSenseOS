@@ -140,6 +140,31 @@ def test_ask_before_changes_waits_for_api_approval_before_execution(monkeypatch,
     assert approved.get_json()["status"] == "accepted"
 
 
+def test_waiting_task_can_persist_an_evidence_backed_plan_before_handoff(tmp_path: Path) -> None:
+    app = create_default_app(tmp_path / "state")
+    client = app.test_client()
+    api_file = tmp_path / "project" / "wisense_os" / "api.py"
+    api_file.parent.mkdir(parents=True)
+    api_file.write_text("from flask import Flask\napp = Flask(__name__)\n", encoding="utf-8")
+    fixture = tmp_path / "project" / "tests" / "test_bootstrap.py"
+    fixture.parent.mkdir()
+    fixture.write_text("def test_api(test_client): pass\n", encoding="utf-8")
+    created = client.post("/api/v1/tasks", json={
+        "request": "Add a GET /api/v1/version endpoint that returns JSON.",
+        "project_root": str(tmp_path / "project"),
+        "mode": "ask_before_changes",
+        "chat_model": "glm-5.2:cloud",
+        "builder_model": "gemma4:31b-cloud",
+    }).get_json()
+
+    response = client.post(f"/api/v1/tasks/{created['task_id']}/plan-draft")
+    saved = client.get(f"/api/v1/tasks/{created['task_id']}").get_json()
+
+    assert response.status_code == 200
+    assert response.get_json()["plan"]["files"] == ["wisense_os/api.py", "tests/test_bootstrap.py"]
+    assert saved["plan"] == response.get_json()["plan"]
+
+
 def test_construction_never_invokes_bridge(monkeypatch, tmp_path: Path) -> None:
     def bomb(*_args, **_kwargs):
         raise AssertionError("app construction must not invoke the Work Center bridge")
