@@ -32,8 +32,23 @@ def test_candidate_requires_exactly_the_reviewed_file_set(tmp_path: Path) -> Non
     assert (tmp_path / "test_app.py").read_text(encoding="utf-8") == "after test"
 
 
+def test_candidate_accepts_a_single_whole_response_json_fence() -> None:
+    raw = "```json\n" + proposal(
+        {"path": "app.py", "content": "after app"},
+        {"path": "test_app.py", "content": "after test"},
+    ) + "\n```"
+
+    candidate = parse_patch_candidate(raw, plan())
+
+    assert dict(candidate.files) == {
+        "app.py": "after app",
+        "test_app.py": "after test",
+    }
+
+
 @pytest.mark.parametrize("raw, error", [
     ("not json", "not valid JSON"),
+    ("Here is the result:\n```json\n{}\n```", "not valid JSON"),
     (json.dumps({"files": [{"path": "app.py", "content": "x"}]}), "omits reviewed"),
     (json.dumps({"files": [{"path": "app.py", "content": "x"}, {"path": "test_app.py", "content": "x"}, {"path": "other.py", "content": "x"}]}), "unreviewed"),
     (json.dumps({"files": [{"path": "app.py", "content": "x"}, {"path": "app.py", "content": "x"}]}), "repeats"),

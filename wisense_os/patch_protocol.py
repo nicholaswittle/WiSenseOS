@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import json
+import re
 from typing import Mapping
 
 from .plan import TaskPlan
@@ -19,10 +20,21 @@ class PatchCandidate:
     files: Mapping[str, str]
 
 
+_JSON_FENCE = re.compile(r"\A```(?:json)?[ \t]*\r?\n(.*?)\r?\n```[ \t]*\Z", re.DOTALL | re.IGNORECASE)
+
+
+def _unwrap_json_fence(raw: str) -> str:
+    """Allow one whole-response JSON fence, but never prose around it."""
+    if not isinstance(raw, str):
+        return raw
+    match = _JSON_FENCE.fullmatch(raw.strip())
+    return match.group(1) if match else raw
+
+
 def parse_patch_candidate(raw: str, plan: TaskPlan) -> PatchCandidate:
-    """Accept only a JSON full-content proposal for exactly the reviewed files."""
+    """Accept exact JSON, optionally wrapped in one JSON Markdown fence."""
     try:
-        payload = json.loads(raw)
+        payload = json.loads(_unwrap_json_fence(raw))
     except (TypeError, json.JSONDecodeError) as exc:
         raise PatchProtocolError("candidate is not valid JSON") from exc
     entries = payload.get("files") if isinstance(payload, dict) else None
